@@ -1,3 +1,15 @@
+"""
+Motor de simulación Monte Carlo del modelo SEIR de EpiSim
+ 
+Implementa la mecánica estocástica completa descrita:
+    - Pool de 10M números pseudoaleatorios generados con el LCG del Punto 3
+    - Simulaciones PAREADAS: cada par sin/con vacunación comparte los mismos
+      parámetros epidemiológicos base, de manera que la única variable que cambia
+      entre escenarios es el factor de vacunación
+    - Los tres pasos estocásticos (contactos, selección, transmisión) se ejecutan
+      día a día durante 365 días por simulación
+"""
+
 import math
 import time
 import constants
@@ -8,7 +20,23 @@ from contagion_conversion import (DailyContactsConverter,
                                   VaccinatedTransmissionConverter,
                                   crear_conversor_transmision)
 
+# POOL GLOBAL DE NÚMEROS PSEUDOALEATORIOS
 class PoolGlobal:
+    """
+    Gestiona el banco de números U(0,1) que alimenta toda la simulación.
+ 
+    Se genera un pool de N_POOL números al inicio usando el LCG del Punto 3.
+    Cuando el pool se agota, se recarga con una semilla derivada
+    y el evento queda registrado en la Matriz s,x para trazabilidad.
+ 
+    Atributos:
+        semilla_maestra (int)  : semilla inicial del generador
+        n_pool          (int)  : tamaño del pool (default N_POOL del constants)
+        _ciclo          (int)  : número de recargas realizadas
+        _consumo_total  (int)  : cantidad total de números entregados
+        matriz_sx       (dict) : registro de la Matriz s,x (semilla, parámetros, ciclos)
+        res_val         (dict) : resultados del Probador General sobre el pool inicial
+    """
 
     def __init__(self, semilla: int = constants.SEMILLA_MAESTRA,
                  n: int = constants.N_POOL):
@@ -37,6 +65,12 @@ class PoolGlobal:
             print("  ADVERTENCIA: el generador no pasó todas las pruebas.")
 
     def siguiente(self) -> float:
+        """
+        Devuelve el siguiente número U(0,1) del pool.
+ 
+        Si el pool se agotó, genera uno nuevo con semilla derivada de forma
+        silenciosa y registra el evento en la Matriz s,x.
+        """
         if self._idx >= len(self._pool):
             self._ciclo  += 1
             s_nueva       = self.semilla_maestra + self._ciclo * 1_000_003
@@ -44,7 +78,7 @@ class PoolGlobal:
                 "ciclo": self._ciclo, "semilla": s_nueva,
                 "consumo_antes": self._consumo_total,
             })
-            # Recarga silenciosa — el evento queda en la Matriz s,x
+            # Recarga silenciosa el evento queda en la Matriz s,x
             self._pool = self._generar_silencioso(s_nueva)
             self._idx  = 0
         val = self._pool[self._idx]
@@ -66,6 +100,7 @@ class PoolGlobal:
         graficar_validacion(self._pool, self.res_val, ruta)
 
     def imprimir_matriz_sx(self):
+        """Imprime el estado final de la Matriz s,x con todos los ciclos de recarga."""
         m = self.matriz_sx
         print("\n" + "=" * 55)
         print("  MATRIZ s,x — Estado Final del Generador")
@@ -79,18 +114,42 @@ class PoolGlobal:
                   f"consumo previo={rec['consumo_antes']:,}")
         print("=" * 55)
 
-
+# PARÁMETROS ESTOCÁSTICOS DE LA SIMULACIÓN
 class SimParams:
+    """
+    Muestrea y almacena los parámetros de la simulación desde el pool global.
+ 
+    Cuando se pasa params_base, reutiliza beta/sigma/gamma/p_base del par anterior
+    (simulación pareada) y solo muestrea los parámetros de vacunación. Esto garantiza
+    que la comparación sin/con vacunación sea honesta, porque la única diferencia
+    entre escenarios es el factor_vac.
+ 
+    Atributos:
+        beta          (float) : tasa de contacto básico muestreada U(BETA_MIN, BETA_MAX)
+        sigma_inv     (float) : periodo de incubación muestreado U(SIGMA_INV_MIN, SIGMA_INV_MAX)
+        gamma_inv     (float) : periodo infeccioso muestreado U(GAMMA_INV_MIN, GAMMA_INV_MAX)
+        p_base        (float) : probabilidad base de transmisión U(P_TRANS_MIN, P_TRANS_MAX)
+        tasa_vac      (float) : tasa de vacunación U(VAC_RATE_MIN, VAC_RATE_MAX) o 0 si no hay vacuna
+        efec_vac      (float) : efectividad de la vacuna U(VAC_EFEC_MIN, VAC_EFEC_MAX) o 0
+        factor_vac    (float) : vulnerabilidad residual = 1 - tasa_vac × efec_vac
+        p_efectiva    (float) : probabilidad de contagio ajustada = p_base × factor_vac
+        periodo_incub (int)   : días en estado E antes de pasar a I
+        periodo_infec (int)   : días en estado I antes de pasar a R
+        contactos_conv        : conversor Paso 1 (DailyContactsConverter)
+        trans_conv            : conversor Paso 3 (vacunado o no vacunado)
+    """
 
     def __init__(self, pool: PoolGlobal, con_vacunacion: bool = True,
                  params_base: dict = None):
         p = constants
         if params_base is None:
+            # Simulación sin vacuna: muestrea todos los parámetros base desde el pool
             self.beta      = p.BETA_MIN    + (p.BETA_MAX    - p.BETA_MIN)    * pool.siguiente()
             self.sigma_inv = p.SIGMA_INV_MIN+(p.SIGMA_INV_MAX-p.SIGMA_INV_MIN)*pool.siguiente()
             self.gamma_inv = p.GAMMA_INV_MIN+(p.GAMMA_INV_MAX-p.GAMMA_INV_MIN)*pool.siguiente()
             self.p_base    = p.P_TRANS_MIN + (p.P_TRANS_MAX  - p.P_TRANS_MIN) * pool.siguiente()
         else:
+            # Simulación con vacuna: hereda los parámetros del par ya corrido
             self.beta      = params_base["beta"]
             self.sigma_inv = params_base["sigma_inv"]
             self.gamma_inv = params_base["gamma_inv"]
@@ -105,6 +164,7 @@ class SimParams:
             self.factor_vac = 1.0
 
         self.p_efectiva    = self.p_base * self.factor_vac
+        # Los períodos se redondean al día más cercano; mínimo 1 para no bloquear la progresión
         self.periodo_incub = max(1, round(self.sigma_inv))
         self.periodo_infec = max(1, round(self.gamma_inv))
 
@@ -115,22 +175,53 @@ class SimParams:
         )
 
     def base_dict(self) -> dict:
+        """Devuelve los parámetros base para pasarlos al par con vacunación."""
         return {"beta": self.beta, "sigma_inv": self.sigma_inv,
                 "gamma_inv": self.gamma_inv, "p_base": self.p_base}
 
     def to_dict(self) -> dict:
+        """Devuelve todos los parámetros para almacenarlos en SimulationResult."""
         d = self.base_dict()
         d.update({"tasa_vac": self.tasa_vac, "efec_vac": self.efec_vac,
                   "factor_vac": self.factor_vac, "p_efectiva": self.p_efectiva})
         return d
 
+# LA MECÁNICA DÍA A DÍA
 class DaySimulation:
+    """
+    Ejecuta un día del modelo estocástico SEIR.
+ 
+    Implementa los tres pasos del enunciado más la progresión determinística de estados. 
+    Se instancia una vez por simulación y se llama 365 veces (Los días del año dahhh).
+ 
+    Atributos:
+        params (SimParams)  : parámetros epidemiológicos de la simulación
+        pool   (PoolGlobal) : fuente de números pseudoaleatorios
+    """
     def __init__(self, params: SimParams, pool: PoolGlobal):
         self.params = params
         self.pool   = pool
 
     def execute(self, S, E_cola, I_cola, R):
+        """
+        Avanza un día completo de propagación.
+ 
+        Parámetros:
+            S      (int)  : susceptibles al inicio del día
+            E_cola (list) : días acumulados en E para cada expuesto
+            I_cola (list) : días acumulados en I para cada infectado
+            R      (int)  : recuperados acumulados
+ 
+        Retorna:
+            S      (int)  : susceptibles al final del día
+            E_cola (list) : cola actualizada de expuestos
+            I_cola (list) : cola actualizada de infectados
+            R      (int)  : recuperados al final del día
+            nuevos_E (int): nuevas infecciones ocurridas este día
+        """
         nuevos_E = 0
+
+        # PASO 1 - por cada infectado activo se generan sus contactos del día
         for _ in I_cola:
             if S <= 0:
                 break
@@ -138,18 +229,22 @@ class DaySimulation:
             for _ in range(nc):
                 if S <= 0:
                     break
+                # PASO 2 - selección real del susceptible contactado
                 ri_s = self.pool.siguiente()
-                _idx = int(ri_s * S)
+                _idx = int(ri_s * S) # índice en [0, S-1]; todos son susceptibles en modelo mezclado
+                # PASO 3 - evaluación estocástica de transmisión
                 if self.params.trans_conv.evaluate(self.pool.siguiente()):
                     S -= 1; nuevos_E += 1
 
+        # PROGRESIÓN E → I (determinística por días acumulados)
         E_nueva  = []; nuevos_I = 0
         for d in E_cola:
             d += 1
             if d >= self.params.periodo_incub: nuevos_I += 1
             else: E_nueva.append(d)
-        E_nueva.extend([0] * nuevos_E)
+        E_nueva.extend([0] * nuevos_E) # los que están recién expuestos entran con cero días
 
+        # PROGRESIÓN I → R (determinística por días acumulados)
         I_nueva  = []; nuevos_R = 0
         for d in I_cola:
             d += 1
@@ -160,6 +255,23 @@ class DaySimulation:
         return S, E_nueva, I_nueva, R + nuevos_R, nuevos_E
 
 def _sim_pico_rapido(pool: PoolGlobal, beta, p_base, tasa_vac, efec_vac) -> int:
+    """
+    Corre una simulación completa de 365 días y devuelve solo el pico de infectados.
+ 
+    Se usa exclusivamente en el análisis de sensibilidad, donde se necesitan
+    cientos de simulaciones rápidas con parámetros fijos y es reutiliza en DaySimulation
+    para no duplicar la mecánica de contagio.
+ 
+    Parámetros:
+        pool      (PoolGlobal) : pool compartido con el run principal
+        beta      (float)      : tasa de contacto fija para este nivel
+        p_base    (float)      : probabilidad de transmisión base
+        tasa_vac  (float)      : tasa de vacunación fija
+        efec_vac  (float)      : efectividad de la vacuna
+ 
+    Retorna:
+        pico (int) : máximo de infectados simultáneos en los 365 días
+    """
     import types
     p = types.SimpleNamespace(
         beta      = beta,
@@ -187,8 +299,22 @@ def _sim_pico_rapido(pool: PoolGlobal, beta, p_base, tasa_vac, efec_vac) -> int:
             pico = len(I)
     return pico
 
-
+# CLASE PRINCIPAL
 class EpiSim:
+    """
+    Orquesta las 1.000 simulaciones Monte Carlo del modelo SEIR.
+ 
+    Ejecuta dos escenarios en paralelo (sin y con vacunación) usando
+    simulaciones pareadas, calcula los agregados estadísticos y corre
+    el análisis de sensibilidad sobre los tres parámetros clave.
+ 
+    Atributos:
+        pool            (PoolGlobal)     : banco de números pseudoaleatorios
+        sin_vacunacion  (ScenarioResults): resultados del escenario base
+        con_vacunacion  (ScenarioResults): resultados del escenario con vacuna
+        sensibilidad    (dict)           : impacto de β, p y vacunación sobre el pico
+        tiempo_total_s  (float)          : tiempo total de ejecución en segundos
+    """
 
     def __init__(self):
         self.pool = None
@@ -198,6 +324,14 @@ class EpiSim:
         self.tiempo_total_s = 0.0
 
     def execute(self):
+        """
+        Este es el punto de entrada principal. Ejecuta el modelo completo en este orden:
+            1. Genera y valida el pool de números pseudoaleatorios
+            2. Corre N_SIMULATIONS pares de simulaciones pareadas
+            3. Calcula promedios e IC 95% por escenario
+            4. Corre el análisis de sensibilidad
+            5. Imprime la Matriz s,x final
+        """
         t0 = time.time()
         n  = constants.N_SIMULATIONS
 
@@ -220,7 +354,7 @@ class EpiSim:
             res_sin, base = self._run_sim(i, con_vacunacion=False, params_base=None)
             t_sin += time.time() - t0_sin
 
-            # CON vacuna: reutiliza mismos parámetros base → solo varía factor_vac
+            # Con vacuna: hereda los parámetros base, solo varía el factor de vacunación
             t0_con = time.time()
             res_con, _    = self._run_sim(i, con_vacunacion=True,  params_base=base)
             t_con += time.time() - t0_con
@@ -252,6 +386,18 @@ class EpiSim:
 
     def _run_sim(self, id: int, con_vacunacion: bool,
                  params_base: dict) -> tuple:
+        """
+        Corre una simulación SEIR completa.
+ 
+        Parámetros:
+            id             (int)  : identificador de la simulación
+            con_vacunacion (bool) : True si es el escenario con vacuna
+            params_base    (dict) : parámetros del par sin vacuna (None si es la primera)
+ 
+        Retorna:
+            res  (SimulationResult) : resultado con curvas y métricas
+            base (dict)             : parámetros base para pasarle al par con vacuna
+        """
         params = SimParams(self.pool, con_vacunacion=con_vacunacion,
                            params_base=params_base)
         res    = SimulationResult(id=id)
@@ -267,7 +413,19 @@ class EpiSim:
         return res, params.base_dict()
 
     def _analisis_sensibilidad(self) -> dict:
-        """5 niveles por parámetro, 50 reps cada uno. Corrección #6."""
+        """
+        Mide el impacto de cada parámetro sobre el pico de infectados.
+ 
+        Para cada parámetro define 5 niveles de intensidad creciente y corre
+        50 simulaciones rápidas por nivel. El rango (máximo - mínimo de picos
+        promedio) indica cuánto influye ese parámetro sobre la epidemia.
+ 
+        Retorna:
+            dict con claves por parámetro, cada una conteniendo:
+                picos     (list) : pico promedio por nivel
+                etiquetas (list) : etiqueta del rango de cada nivel
+                rango     (float): diferencia entre el nivel más alto y el más bajo
+        """
         N_REP = 50
         config = {
             "β (tasa contacto)": [
