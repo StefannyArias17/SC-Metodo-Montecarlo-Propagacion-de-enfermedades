@@ -1,7 +1,28 @@
+"""
+Clases de datos para almacenar los resultados del modelo EpiSim 
+
+Almacena los resultados de cada simulación individual y agrega estadísticas
+por escenario (Sin Vacunación / Con Vacunación).
+"""
+
 import constants
 
-
 class SimulationResult:
+    """
+    Resultado completo de UNA simulación SEIR de DAYS días.
+
+    Atributos:
+        id          (int)   : Identificador del número de la simulación (0 a N_SIMULATIONS-1)
+        curva_S     (list)  : Susceptibles por día [0 a DAYS-1]
+        curva_E     (list)  : Expuestos por día
+        curva_I     (list)  : Infectados activos por día
+        curva_R     (list)  : Recuperados/removidos por día
+        pico_I      (int)   : Valor más alto de infectados activos
+        dia_pico    (int)   : Día del pico (empieza en 1 por defecto)
+        total_inf   (int)   : Total infectados acumulados al finalizar la simulación
+        dia_ctrl    (int)   : Día en que I cae bajo el 1% del pico (cuando la epidemia se controla)
+        params      (dict)  : Parámetros estocásticos de esta corrida
+    """
 
     def __init__(self, id: int):
         self.id        = id
@@ -33,10 +54,18 @@ class SimulationResult:
                 self.dia_ctrl = d + 1
                 break
 
-
 class ScenarioResults:
     """
-    Agrega los resultados de todas las simulaciones de UN escenario.
+    Agrega los resultados de todas las simulaciones de UN escenario (vacunación / no vacunaición).
+    
+    Atributos:
+        nombre       (str)         : 'Sin Vacunación' o 'Con Vacunación'
+        resultados   (list)        : Lista de SimulationResult
+        prom_S/E/I/R (list[float]) : Promedio diario de cada compartimento sobre el total de simulaciones
+        lo_S/E/I/R   (list[float]) : Percentil 2.5% por día (IC 95% inferior)
+        hi_S/E/I/R   (list[float]) : Percentil 97.5% por día (IC 95% superior)
+        stats        (dict)        : Estadísticas descriptivas de métricas clave
+        tiempo_s     (float)       : Tiempo de CPU del escenario en segundos
     """
 
     def __init__(self, nombre: str):
@@ -60,10 +89,12 @@ class ScenarioResults:
         if n == 0:
             return
 
+        # Promedio diario de cada curva
         def prom(k):
             return [sum(getattr(r, k)[d] for r in self.resultados) / n
                     for d in range(dias)]
 
+        # Intervalo de confianza para dibujar la sombra
         def ic(k):
             i_lo = max(0, int(0.025 * n))
             i_hi = min(n - 1, int(0.975 * n))
@@ -79,6 +110,7 @@ class ScenarioResults:
         self.prom_I, (self.lo_I, self.hi_I) = prom("curva_I"), ic("curva_I")
         self.prom_R, (self.lo_R, self.hi_R) = prom("curva_R"), ic("curva_R")
 
+        # Estadísticas descriptivas
         def _s(lst):
             nn = len(lst)
             mu = sum(lst) / nn
@@ -95,6 +127,7 @@ class ScenarioResults:
                 "raw":      lst,
             }
 
+        # Análisis estadístico (creo)
         self.stats = {
             "picos":   _s([r.pico_I    for r in self.resultados]),
             "dias_p":  _s([r.dia_pico  for r in self.resultados]),
