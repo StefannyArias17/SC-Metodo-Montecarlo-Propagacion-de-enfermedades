@@ -1,7 +1,7 @@
 import math
 import time
 import constants
-from p3_adapter          import generar_pool_global, validar_generador, graficar_validacion
+from pseudorandom_adapter          import generar_pool_global, validar_generador, graficar_validacion
 from score               import SimulationResult, ScenarioResults
 from contagion_conversion import (DailyContactsConverter,
                                   UnvaccinatedTransmissionConverter,

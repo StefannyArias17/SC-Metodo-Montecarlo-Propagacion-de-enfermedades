@@ -1,0 +1,118 @@
+Metadata-Version: 2.4
+Name: generador-npseudoaleatorios
+Version: 0.1.0
+Summary: Biblioteca reutilizable para generacion, transformacion y validacion de numeros pseudoaleatorios.
+Author: Mafe
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=2.0
+Requires-Dist: matplotlib>=3.8
+Requires-Dist: scipy>=1.10
+Provides-Extra: gui
+Requires-Dist: ttkbootstrap>=1.10; extra == "gui"
+
+# Generador de numeros pseudoaleatorios
+
+Este proyecto ya esta preparado para usarse como biblioteca reutilizable de Python.
+
+Incluye:
+- Generadores base (cuadrados medios, congruencia lineal, congruencial multiplicativo y aditivo).
+- Transformaciones de distribucion (uniforme y normal).
+- Pruebas de validacion estadistica (chi-cuadrado, KS, medias, varianza, poker y rachas).
+- Aplicacion GUI como cliente de la biblioteca.
+
+## Instalacion como biblioteca
+
+Desde la raiz del proyecto:
+
+```bash
+pip install .
+```
+
+Si tambien quieres ejecutar la GUI desde el comando instalado:
+
+```bash
+pip install .[gui]
+```
+
+## API publica
+
+La API principal esta en el paquete `generador_npseudoaleatorios`.
+
+### Ejemplo rapido
+
+```python
+from generador_npseudoaleatorios import BibliotecaGeneradorPseudoaleatorio
+
+bib = BibliotecaGeneradorPseudoaleatorio()
+
+corridas = bib.generar_base(
+	metodo="Congruencia Lineal",
+	semillas=[12345],
+	pasos=1000,
+	corridas=3,
+)
+
+for nombre, (metodo, semilla, secuencia) in corridas.items():
+	resultados = bib.validar(
+		secuencia=secuencia,
+		pruebas_activas=["Chi Cuadrado", "Kolmogorov Smirnov"],
+		metodo=metodo,
+		params_dist={"a": 0.0, "b": 1.0, "mu": 0.0, "sigma": 1.0},
+	)
+	print(nombre, resultados)
+```
+
+### Pipeline completo
+
+```python
+from generador_npseudoaleatorios import BibliotecaGeneradorPseudoaleatorio
+
+bib = BibliotecaGeneradorPseudoaleatorio()
+
+resultados = bib.ejecutar_pipeline(
+	metodos_base=["Congruencia Lineal", "Cuadrados Medios"],
+	semillas=[1234, 5678],
+	pasos=500,
+	corridas=5,
+	pruebas_activas=["Chi Cuadrado", "Medias", "Varianza"],
+	incluir_uniforme=True,
+	incluir_normal=True,
+	a=10,
+	b=50,
+	mu=0,
+	sigma=1,
+)
+
+for corrida in resultados:
+	print(corrida.corrida, corrida.metodo, len(corrida.secuencia))
+```
+
+## Ejecutar la GUI
+
+En desarrollo local:
+
+```bash
+python main.py
+```
+
+Despues de instalar con extra de GUI:
+
+```bash
+gnp-gui
+```
+
+## Estructura principal
+
+- `generador_npseudoaleatorios/`: API publica de biblioteca.
+- `app_services/`: servicios de generacion, validacion, graficos y exportacion.
+- `generador_numeros/`: algoritmos base de generacion.
+- `distribuciones/`: transformaciones de distribucion.
+- `validadores/`: pruebas estadisticas.
+- `visualizaciones/`: funciones de graficacion.
+
+## Notas
+
+- Para resultados consistentes, la API trunca los `Ri` a 5 decimales por defecto.
+- Las validaciones de distribuciones se transforman a escala U(0,1) antes de aplicar las pruebas actuales.

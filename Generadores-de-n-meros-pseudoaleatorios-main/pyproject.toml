@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "generador-npseudoaleatorios"
+version = "0.1.0"
+description = "Biblioteca reutilizable para generacion, transformacion y validacion de numeros pseudoaleatorios."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Mafe" }
+]
+license = { text = "MIT" }
+dependencies = [
+  "numpy>=2.0",
+  "matplotlib>=3.8",
+  "scipy>=1.10"
+]
+
+[project.optional-dependencies]
+gui = [
+  "ttkbootstrap>=1.10"
+]
+
+[project.scripts]
+gnp-gui = "main:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+include = [
+  "app_services*",
+  "generador_numeros*",
+  "distribuciones*",
+  "validadores*",
+  "visualizaciones*",
+  "generador_npseudoaleatorios*"
+]

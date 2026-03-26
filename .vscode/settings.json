@@ -1,0 +1,5 @@
+{
+    "python.analysis.extraPaths": [
+        "./Generadores-de-n-meros-pseudoaleatorios-main"
+    ]
+}
