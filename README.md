@@ -444,13 +444,13 @@ Al completar la ejecución, la carpeta `salidas/` contiene ocho archivos PNG y l
 ![02_curvas_seir.png](salidas/02_curvas_seir.png)
 
 **`03_trayectorias.png`** — 40 trayectorias individuales de I(t) semitransparentes, con la curva promedio en negro y banda de IC 95%. Muestra visualmente la variabilidad entre simulaciones.
-![03_trayectorias.png](03_trayectorias.png)
+![03_trayectorias.png](salidas/03_trayectorias.png)
 
 **`04_comparacion.png`** — Comparación directa de I(t) entre escenarios, con el porcentaje de reducción del pico anotado. Panel secundario con métricas comparadas en barras.
 ![04_comparacion.png](salidas/04_comparacion.png)
 
 **`05_histogramas.png`** — Distribuciones del pico máximo de I, total de infectados y día del control. Panel adicional que separa extinción temprana de epidemia completa en el escenario con vacunación.
-![05_histogramas.png](05_histogramas.png)
+![05_histogramas.png](salidas/05_histogramas.png)
 
 **`06_sensibilidad.png`** — Análisis de sensibilidad con 5 niveles por parámetro (β, p_trans, tasa de vacunación). Diagrama tornado que muestra cuál parámetro tiene mayor rango de influencia sobre el pico de infectados.
 ![06_sensibilidad.png](salidas/06_sensibilidad.png)
