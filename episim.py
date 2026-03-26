@@ -1,3 +1,14 @@
+"""
+Script principal de EpiSim, aquí genera las 8 gráficas del análisis epidemiológico
+ 
+Coordina la ejecución del modelo (episim_simulation.py) con la visualización
+de resultados. Cada función graficar es responsable de una sola gráfica,
+lo que hace fácil regenerar o modificar cualquiera de forma independiente.
+ 
+Se puede ejecutar con parámetros por defecto o cargando un CSV externo:
+    python episim.py
+    python episim.py --config config_ejemplo.csv
+"""
 import os
 import sys
 import math
@@ -16,7 +27,17 @@ os.makedirs("salidas", exist_ok=True)
 
 COLORES = {"S": "#1976D2", "E": "#F57C00", "I": "#D32F2F", "R": "#388E3C"}
 
+# UTILIDADES
 def cargar_config(ruta: str):
+    """
+    Carga parámetros desde un archivo CSV y los sobreescribe en constants.
+ 
+    El formato es nombre,valor por línea. Solo se sobreescriben los atributos que 
+    ya existen en constants, así que no hay riesgo de inyectar variables extrañas.
+ 
+    Parámetros:
+        ruta (str) : ruta al archivo CSV de configuración
+    """
     if not os.path.exists(ruta):
         print(f"[Config] Archivo no encontrado: {ruta}")
         return
@@ -35,6 +56,16 @@ def cargar_config(ruta: str):
 
 
 def suavizar(lista: list, ventana: int = 12) -> list:
+    """
+    Aplica una media móvil centrada para suavizar curvas estocásticas ruidosas.
+ 
+    Parámetros:
+        lista   (list) : valores a suavizar
+        ventana (int)  : mitad del ancho de la ventana (default 12 días)
+ 
+    Retorna:
+        list con los valores suavizados
+    """
     result = []
     for i in range(len(lista)):
         ini = max(0, i - ventana // 2)
@@ -44,18 +75,37 @@ def suavizar(lista: list, ventana: int = 12) -> list:
 
 
 def save(fig, nombre: str, out_dir: str = "salidas"):
+    """Guarda la figura en out_dir e imprime la ruta por consola."""
     ruta = os.path.join(out_dir, nombre)
     fig.savefig(ruta, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  [+] {ruta}")
 
 
-# =============================================================================
-# MODELO SEIR DETERMINÍSTICO — referencia bibliográfica
-# =============================================================================
-
+# MODELO SEIR DETERMINÍSTICO, el relacionado a la "Referencia bibliográfica"
 def seir_teorico(beta: float = 0.2714, sigma: float = 0.2857,
                  gamma: float = 0.0952) -> dict:
+    """
+    Resuelve el SEIR determinístico por el método de Euler y devuelve las curvas.
+ 
+    Los parámetros por defecto son los valores efectivos derivados analíticamente
+    del mecanismo estocástico del modelo:
+        β_eff = E[contactos/día] × E[p_trans] = 0.5427 × 0.5 = 0.2714
+        σ_eff = 1 / E[σ_inv] = 1 / 3.5 = 0.2857
+        γ_eff = 1 / E[γ_inv] = 1 / 10.5 = 0.0952
+        R0 = β_eff / γ_eff ≈ 2.85
+ 
+    Se usa en la gráfica 08 para comparar el resultado estocástico contra
+    el modelo continuo teórico (criterio de empate bibliográfico).
+ 
+    Parámetros:
+        beta  (float) : tasa de transmisión efectiva
+        sigma (float) : tasa de progresión E → I (1/periodo de incubación)
+        gamma (float) : tasa de recuperación I → R (1/periodo infeccioso)
+ 
+    Retorna:
+        dict con listas "S", "E", "I", "R", "dias" de longitud DAYS
+    """
     N = constants.N_POPULATION; I0 = constants.I0_INFECTED
     dias = constants.DAYS
     S, E, I, R = float(N - I0), 0.0, float(I0), 0.0
@@ -73,6 +123,18 @@ def seir_teorico(beta: float = 0.2714, sigma: float = 0.2857,
     return out
 
 def analisis_convergencia(sim: EpiSim) -> list:
+    """
+    Calcula el pico medio y su error estándar para distintas cantidades de simulaciones.
+ 
+    Sirve para demostrar que el estimador converge al aumentar las réplicas,
+    lo que valida estadísticamente el tamaño de muestra elegido.
+ 
+    Parámetros:
+        sim (EpiSim) : modelo ya ejecutado
+ 
+    Retorna:
+        list de dicts con claves "simulaciones", "pico_medio" y "error_std"
+    """
     picos  = sim.sin_vacunacion.stats["picos"]["raw"]
     puntos = [10, 50, 100, 250, 500, min(1000, len(picos))]
     tabla  = []
@@ -85,7 +147,20 @@ def analisis_convergencia(sim: EpiSim) -> list:
                       "error_std": round(ee, 2)})
     return tabla
 
+# GRÁFICAS
 def graficar_curvas_seir(sim: EpiSim, teorico: dict, out_dir: str):
+    """
+    Genera la gráfica 02: 02_curvas_seir.png promedio con banda de confianza al 95%.
+ 
+    Muestra un panel por escenario (sin/con vacunación). Las curvas se suavizan
+    con media móvil para reducir el ruido estocástico y facilitar la lectura.
+    La banda IC 95% se grafica solo para I, que es el compartimento más relevante.
+ 
+    Parámetros:
+        sim     (EpiSim) : modelo ya ejecutado
+        teorico (dict)   : salida de seir_teorico() (aunque no se usa aquí, se pasa por consistencia)
+        out_dir (str)    : carpeta de salida
+    """
     N = constants.N_POPULATION; dias = constants.DAYS
     t = list(range(1, dias + 1))
     n = len(sim.sin_vacunacion.resultados)
@@ -115,7 +190,7 @@ def graficar_curvas_seir(sim: EpiSim, teorico: dict, out_dir: str):
         ax.fill_between(t, loI, hiI, color=COLORES["I"], alpha=0.18,
                         label="IC 95% (I)")
 
-        # Anotación del pico
+        # Anotación del pico para identificar el día y la magnitud de inmediato
         pico_pct = max(pI); dp = pI.index(pico_pct) + 1
         ax.annotate(
             f"Pico I: {pico_pct:.1f}%\n(Día {dp})",
@@ -137,6 +212,17 @@ def graficar_curvas_seir(sim: EpiSim, teorico: dict, out_dir: str):
 
 
 def graficar_trayectorias(sim: EpiSim, out_dir: str):
+    """
+    Genera la gráfica 03: trayectorias individuales de I(t) nombrada como 03_trayectorias.png .
+ 
+    Muestra hasta 40 simulaciones superpuestas en transparencia para visualizar
+    la variabilidad estocástica entre corridas. Encima se dibuja el promedio
+    y la banda IC 95%.
+ 
+    Parámetros:
+        sim     (EpiSim) : modelo ya ejecutado
+        out_dir (str)    : carpeta de salida
+    """
     N = constants.N_POPULATION; dias = constants.DAYS
     t = list(range(1, dias + 1))
 
@@ -151,6 +237,7 @@ def graficar_trayectorias(sim: EpiSim, out_dir: str):
         (sim.sin_vacunacion, "#D32F2F", "Sin Vacunación"),
         (sim.con_vacunacion, "#1976D2", "Con Vacunación"),
     ]):
+        # Se grafican 40 trayectorias muestreadas uniformemente del total
         paso = max(1, len(esc.resultados) // 40)
         for i in range(0, min(40 * paso, len(esc.resultados)), paso):
             ax.plot(t, [v/N*100 for v in esc.resultados[i].curva_I],
@@ -176,6 +263,18 @@ def graficar_trayectorias(sim: EpiSim, out_dir: str):
     save(fig, "03_trayectorias.png", out_dir)
 
 def graficar_comparacion(sim: EpiSim, out_dir: str):
+    """
+    Genera la gráfica 04: impacto de la vacunación sobre la epidemia nombrada como 04_comparacion.png .
+ 
+    Panel izquierdo: curvas I(t) superpuestas de ambos escenarios con sus IC 95%
+    y la reducción porcentual del pico.
+    Panel derecho: barras comparativas de las tres métricas principales
+    normalizadas al 100% para que sean comparables en escala.
+ 
+    Parámetros:
+        sim     (EpiSim) : modelo ya ejecutado
+        out_dir (str)    : carpeta de salida
+    """
     N = constants.N_POPULATION; dias = constants.DAYS
     t = list(range(1, dias + 1))
     sv = sim.sin_vacunacion; cv = sim.con_vacunacion
@@ -209,6 +308,7 @@ def graficar_comparacion(sim: EpiSim, out_dir: str):
                   fontweight="bold")
     ax1.legend(fontsize=9); ax1.grid(alpha=0.3); ax1.set_xlim(1, dias)
 
+    # Barras normalizadas para comparar magnitudes en distintas unidades
     ax2  = fig.add_subplot(gs[0, 2])
     mets = ["Pico I\n(personas)", "Total\ninfectados", "Día\ndel pico"]
     sv_v = [sv.stats["picos"]["media"], sv.stats["totales"]["media"],
@@ -241,7 +341,25 @@ def graficar_comparacion(sim: EpiSim, out_dir: str):
 
 
 def graficar_histogramas(sim: EpiSim, out_dir: str):
-    UMBRAL = 50
+    """
+    Genera la gráfica 05: distribuciones de métricas clave + tablas descriptivas nombrada como
+    05_histogramas.png .
+ 
+    Fila superior: tres histogramas superpuestos (sin/con vacuna) para pico I,
+    total de infectados y días hasta control.
+    Fila inferior: tablas de estadísticas descriptivas por escenario + histograma
+    bimodal que separa las simulaciones con extinción temprana de las epidemias
+    completas cuando hay vacunación.
+ 
+    La separación bimodal es importante porque mezclar extinción con epidemia
+    completa distorsiona el promedio y la desviación estándar del escenario
+    con vacunación.
+ 
+    Parámetros:
+        sim     (EpiSim) : modelo ya ejecutado
+        out_dir (str)    : carpeta de salida
+    """
+    UMBRAL = 50  # pico ≤ 50 = extinción temprana
     N = constants.N_POPULATION
     n = len(sim.sin_vacunacion.resultados)
     sv = sim.sin_vacunacion; cv = sim.con_vacunacion
@@ -304,7 +422,7 @@ def graficar_histogramas(sim: EpiSim, out_dir: str):
     ax.set_title("Estadísticas Descriptivas — Sin Vacunación", fontweight="bold")
     ax.axis("off")
 
-    # Fila 1 col 1: tabla descriptiva Con vacuna (con nota extinción)
+    # Fila 1 col 1: tabla descriptiva Con vacuna con anotación de extinción
     ax = axes[1, 1]
     c = cv.stats
     picos_cv  = c["picos"]["raw"]
@@ -339,7 +457,7 @@ def graficar_histogramas(sim: EpiSim, out_dir: str):
     ax.set_title(titulo_cv, fontweight="bold")
     ax.axis("off")
 
-    # Fila 1 col 2: histograma separado extinción vs epidemia (con vacuna)
+    # Fila 1 col 2: bimodal — epidemia completa vs extinción temprana separadas
     ax = axes[1, 2]
     picos_epid  = [p for p in picos_cv if p >  UMBRAL]
     picos_extin = [p for p in picos_cv if p <= UMBRAL]
@@ -368,6 +486,19 @@ def graficar_histogramas(sim: EpiSim, out_dir: str):
 
 
 def graficar_sensibilidad(sensibilidad: dict, out_dir: str):
+    """
+    Genera la gráfica 06: análisis de sensibilidad con diagrama tornado nombrada como
+    06_sensibilidad.png .
+ 
+    Panel izquierdo: barras horizontales con el pico promedio para cada nivel
+    de cada parámetro. Permite ver cómo evoluciona el pico al aumentar la intensidad.
+    Panel derecho: diagrama tornado clásico ordenado por impacto (Δ rango).
+    El parámetro con la barra más larga es el que más influye sobre la epidemia.
+ 
+    Parámetros:
+        sensibilidad (dict) : salida de EpiSim._analisis_sensibilidad()
+        out_dir      (str)  : carpeta de salida
+    """
     cols_s  = ["#E91E63", "#9C27B0", "#009688"]
     nombres = list(sensibilidad.keys())
 
@@ -378,7 +509,7 @@ def graficar_sensibilidad(sensibilidad: dict, out_dir: str):
         fontsize=13, fontweight="bold"
     )
 
-    # Panel izquierdo: barras por nivel
+    # Panel izquierdo: barras por nivel de parámetro
     ax = axes[0]
     for idx, (nom, datos) in enumerate(sensibilidad.items()):
         yp = [idx * 6 + i for i in range(len(datos["picos"]))]
@@ -392,7 +523,7 @@ def graficar_sensibilidad(sensibilidad: dict, out_dir: str):
     ax.set_title("Impacto por nivel de parámetro", fontweight="bold")
     ax.legend(fontsize=9, loc="lower right"); ax.grid(alpha=0.3); ax.set_yticks([])
 
-    # Panel derecho: tornado (Δ rango)
+    # Panel derecho: tornado, muestra directamente qué parámetro importa más
     ax2   = axes[1]
     rango = [sensibilidad[n]["rango"] for n in nombres]
     medio = [(max(sensibilidad[n]["picos"]) + min(sensibilidad[n]["picos"])) / 2
@@ -416,6 +547,18 @@ def graficar_sensibilidad(sensibilidad: dict, out_dir: str):
 
 
 def graficar_convergencia(tabla: list, out_dir: str):
+    """
+    Genera la gráfica 07: convergencia del estimador Monte Carlo nombrada como
+    07_convergencia.png .
+ 
+    Muestra que al aumentar el número de simulaciones, el pico medio converge
+    y el error estándar decrece como 1/√n, confirmando el Teorema Central
+    del Límite. El panel log-log hace visible esa relación de forma directa.
+ 
+    Parámetros:
+        tabla   (list) : salida de analisis_convergencia()
+        out_dir (str)  : carpeta de salida
+    """
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
     fig.suptitle(
         "Convergencia del Pico de Infectados\n"
@@ -439,7 +582,7 @@ def graficar_convergencia(tabla: list, out_dir: str):
                      xy=(row["simulaciones"], row["pico_medio"]),
                      xytext=(5, 8), textcoords="offset points", fontsize=8)
 
-    # Panel log-log del error estándar
+    # Panel log-log del error estándar, la pendiente debería ser -0.5 si se cumple el TCL
     ax2.loglog(x[1:], ee[1:], "o-", color="coral", linewidth=2, markersize=8)
     ax2.set_xlabel("Número de simulaciones (escala log)")
     ax2.set_ylabel("Error estándar (escala log)")
@@ -451,7 +594,22 @@ def graficar_convergencia(tabla: list, out_dir: str):
 
 def graficar_empate_bibliografico(sim: EpiSim, teorico: dict, out_dir: str):
     """
-    Compara el escenario SIN VACUNACIÓN contra el SEIR determinístico calibrado.
+    Genera la gráfica 08: criterio de empate estocástico vs determinístico
+    es nombrada 08_empate_bibliografico.png .
+ 
+    Compara el escenario SIN vacunación contra el SEIR determinístico calibrado
+    con los parámetros efectivos del mecanismo estocástico.
+    Un evaluador puede verificar que el modelo Monte Carlo reproduce el
+    comportamiento esperado por la teoría epidemiológica clásica.
+ 
+    Para I se usa IC 95% (percentiles). Para S, E, R se usa ±1σ diaria porque
+    el IC 95% en esos compartimentos resulta en bandas muy amplias por la
+    dispersión temporal de inicio de epidemia entre simulaciones.
+ 
+    Parámetros:
+        sim     (EpiSim) : modelo ya ejecutado
+        teorico (dict)   : salida de seir_teorico()
+        out_dir (str)    : carpeta de salida
     """
     N    = constants.N_POPULATION
     dias = constants.DAYS
@@ -473,6 +631,7 @@ def graficar_empate_bibliografico(sim: EpiSim, teorico: dict, out_dir: str):
 
     # ±1σ diaria para S, E, R
     def banda_std(attr_curva):
+        """±1σ diaria, más informativa que IC 95% para S/E/R con timing disperso."""
         lo_list, hi_list = [], []
         for d in range(dias):
             vals = [getattr(r, attr_curva)[d] / N * 100 for r in sv.resultados]
@@ -514,7 +673,7 @@ def graficar_empate_bibliografico(sim: EpiSim, teorico: dict, out_dir: str):
         ax.plot(t, teo,  color=color, lw=1.8, ls="--", alpha=0.85,
                 label=f"{comp} teórico (SEIR det.)")
 
-        # Anotaciones del pico en I
+        # Anotaciones del pico solo en I para no saturar los otros paneles
         if comp == "I":
             pico_sim = max(prom); dp_sim = prom.index(pico_sim) + 1
             pico_teo = max(teo);  dp_teo = teo.index(pico_teo) + 1
@@ -548,6 +707,16 @@ def graficar_empate_bibliografico(sim: EpiSim, teorico: dict, out_dir: str):
     save(fig, "08_empate_bibliografico.png", out_dir)
 
 def imprimir_tabla(sim: EpiSim):
+    """
+    Imprime en consola la tabla comparativa de estadísticas descriptivas.
+ 
+    Muestra media ± desviación estándar y rango [min–max] para las cuatro
+    métricas principales de cada escenario, junto con la reducción porcentual
+    atribuida a la vacunación y los tiempos de CPU.
+ 
+    Parámetros:
+        sim (EpiSim) : modelo ya ejecutado
+    """
     print("\n" + "="*72)
     print("  TABLA DE ESTADÍSTICAS DESCRIPTIVAS (1,000 simulaciones)")
     print("="*72)
