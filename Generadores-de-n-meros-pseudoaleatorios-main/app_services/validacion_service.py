@@ -4,7 +4,6 @@ from validadores.prueba_medias import PruebaMedias
 from validadores.prueba_varianza import PruebaVarianza
 from validadores.prueba_poker import PruebaPoker
 from validadores.prueba_rachas import PruebaRachas
-from statistics import NormalDist
 import io
 from contextlib import redirect_stdout
 
@@ -19,74 +18,17 @@ class ValidacionService:
 
     Attributes
     ----------
-    _NORMAL_STD : NormalDist
-        Distribución normal estándar N(0, 1) para transformaciones.
     _ESCALA_TRUNCADO : int
         Escala para truncar valores a 5 decimales (100000).
 
     Notes
     -----
     - Todos los métodos son estáticos, no requiere instanciación.
-    - Transforma automáticamente distribuciones (Uniforme, Normal) a U(0,1).
     - Trunca valores a 5 decimales para consistencia.
     - Captura y compacta la salida de pruebas para tablas/CSV.
     """
 
-    _NORMAL_STD = NormalDist(mu=0.0, sigma=1.0)
     _ESCALA_TRUNCADO = 100000
-
-    @staticmethod
-    def _transformar_para_validacion(seq, metodo=None, params_dist=None):
-        """
-        Transforma secuencias de distribuciones a U(0,1) para validación.
-
-        Invierte transformaciones de distribuciones (Uniforme, Normal) para
-        recuperar valores en el dominio estándar U(0,1) al cual están
-        calibradas las pruebas de validación.
-
-        Parameters
-        ----------
-        seq : list[float]
-            Secuencia a transformar.
-        metodo : str or None
-            Nombre de la distribución. Valores: 'Distribucion Uniforme',
-            'Distribucion Normal', o None para no transformar.
-        params_dist : dict, optional
-            Parámetros de la distribución (a, b, mu, sigma).
-
-        Returns
-        -------
-        list[float]
-            Secuencia transformada a [0, 1], clipeada a [1e-12, 1-1e-12].
-
-        Raises
-        ------
-        ValueError
-            Si a >= b para Uniforme, o si sigma <= 0 para Normal.
-        """
-        if metodo == "Distribucion Uniforme":
-            if not params_dist:
-                return seq
-            a = float(params_dist.get("a", 0.0))
-            b = float(params_dist.get("b", 1.0))
-            if a >= b:
-                raise ValueError("Para validar distribución uniforme debe cumplirse a < b.")
-            amplitud = b - a
-            return [min(max((float(x) - a) / amplitud, 0.0), 1.0 - 1e-12) for x in seq]
-
-        if metodo == "Distribucion Normal":
-            if not params_dist:
-                return seq
-            mu = float(params_dist.get("mu", 0.0))
-            sigma = float(params_dist.get("sigma", 1.0))
-            if sigma <= 0:
-                raise ValueError("Para validar distribución normal, sigma debe ser mayor que 0.")
-            return [
-                min(max(ValidacionService._NORMAL_STD.cdf((float(x) - mu) / sigma), 1e-12), 1.0 - 1e-12)
-                for x in seq
-            ]
-
-        return seq
 
     @staticmethod
     def _truncar_a_5_decimales(seq):
@@ -171,8 +113,8 @@ class ValidacionService:
         """
         Ejecuta un conjunto de pruebas de validación sobre una secuencia.
 
-        Transforma la secuencia según su distribución, trunca a 5 decimales,
-        y ejecuta todas las pruebas solicitadas con parámetros automáticos.
+        Trunca la secuencia a 5 decimales y ejecuta todas las pruebas
+        solicitadas con parámetros automáticos.
 
         Parameters
         ----------
@@ -183,9 +125,9 @@ class ValidacionService:
             'Chi Cuadrado', 'Kolmogorov Smirnov', 'Medias', 'Varianza',
             'Poker', 'Rachas'.
         metodo : str, optional
-            Nombre de la distribución para transformación.
+            Se mantiene por compatibilidad; no se utiliza.
         params_dist : dict, optional
-            Parámetros de distribución (a, b, mu, sigma).
+            Se mantiene por compatibilidad; no se utiliza.
 
         Returns
         -------
@@ -194,9 +136,7 @@ class ValidacionService:
             (nombre_prueba, pasó, detalles_compactados).
             Si una prueba falla, pasó=False y detalles contiene el error.
         """
-        seq_validacion = ValidacionService._transformar_para_validacion(
-            seq, metodo=metodo, params_dist=params_dist
-        )
+        seq_validacion = seq
         seq_validacion = ValidacionService._truncar_a_5_decimales(seq_validacion)
         resultados = []
 

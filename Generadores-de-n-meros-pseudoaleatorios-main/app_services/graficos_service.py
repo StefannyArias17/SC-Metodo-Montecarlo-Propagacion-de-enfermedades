@@ -1,7 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import chi2, norm
-from app_services.validacion_service import ValidacionService
 
 from visualizaciones.graficas_de_validacion import (
     graficar_kolmogorov_smirnov,
@@ -28,34 +27,6 @@ class GraficosService:
     - Usa matplotlib para visualización.
     - Soporta filtrado por método de generación en gráficos multivariados.
     """
-    @staticmethod
-    def _transformar_seq_para_validacion(seq, metodo, params_dist):
-        """
-        Transforma una secuencia según su distribución a U(0,1) para validar.
-
-        Delegación a ValidacionService para convertir distribuciones
-        (Uniforme, Normal) a la escala estándar U(0,1).
-
-        Parameters
-        ----------
-        seq : list[float]
-            Secuencia a transformar.
-        metodo : str or None
-            Nombre de la distribución (Distribucion Uniforme, Distribucion Normal).
-        params_dist : dict
-            Parámetros de distribución (a, b, mu, sigma).
-
-        Returns
-        -------
-        list[float]
-            Secuencia transformada a [0, 1].
-        """
-        return ValidacionService._transformar_para_validacion(
-            seq,
-            metodo=metodo,
-            params_dist=params_dist,
-        )
-
     @staticmethod
     def _obtener_rango_histograma(seq, metodo, params_dist):
         """
@@ -89,6 +60,33 @@ class GraficosService:
             return None
 
         return (0, 1)
+
+    @staticmethod
+    def _calcular_intervalos_frecuencias(seq, cantidad_intervalos=30):
+        """Calcula limites y frecuencias usando min/max y ancho fijo."""
+        minimo = min(seq)
+        maximo = max(seq)
+
+        if minimo == maximo:
+            intervalos = [minimo for _ in range(cantidad_intervalos)]
+            frecuencias = [len(seq)] + [0] * (cantidad_intervalos - 1)
+            return intervalos, frecuencias
+
+        ancho_intervalo = (maximo - minimo) / cantidad_intervalos
+        intervalos = [minimo]
+        for _ in range(1, cantidad_intervalos):
+            intervalos.append(intervalos[-1] + ancho_intervalo)
+
+        frecuencias = [0] * cantidad_intervalos
+        for valor in seq:
+            indice = int((valor - minimo) / ancho_intervalo)
+            if indice < 0:
+                indice = 0
+            elif indice >= cantidad_intervalos:
+                indice = cantidad_intervalos - 1
+            frecuencias[indice] += 1
+
+        return intervalos, frecuencias
 
     @staticmethod
     def mostrar(
@@ -134,22 +132,43 @@ class GraficosService:
             params_dist = {"a": 0.0, "b": 1.0, "mu": 0.0, "sigma": 1.0}
 
         if tipo == "Histograma":
-            rango = GraficosService._obtener_rango_histograma(seq, metodo, params_dist)
-            plt.figure(figsize=(9, 5))
-            plt.hist(seq, bins=30, range=rango, color="steelblue", edgecolor="black")
-            plt.title(f"Histograma - {corrida}")
-            plt.xlabel("Ri")
-            plt.ylabel("Frecuencia")
-            plt.grid(alpha=0.3)
-            plt.tight_layout()
-            plt.show()
+            if metodo == "Distribucion Normal":
+                intervalos, frecuencias = GraficosService._calcular_intervalos_frecuencias(
+                    seq,
+                    cantidad_intervalos=30,
+                )
+                ancho_intervalo = 1.0
+                if len(intervalos) > 1:
+                    ancho_intervalo = intervalos[1] - intervalos[0]
+
+                plt.figure(figsize=(9, 5))
+                plt.bar(
+                    intervalos,
+                    frecuencias,
+                    width=ancho_intervalo,
+                    align="edge",
+                    color="steelblue",
+                    edgecolor="black",
+                )
+                plt.title(f"Histograma - {corrida}")
+                plt.xlabel("Ri")
+                plt.ylabel("Frecuencia")
+                plt.grid(alpha=0.3)
+                plt.tight_layout()
+                plt.show()
+            else:
+                rango = GraficosService._obtener_rango_histograma(seq, metodo, params_dist)
+                plt.figure(figsize=(9, 5))
+                plt.hist(seq, bins=30, range=rango, color="steelblue", edgecolor="black")
+                plt.title(f"Histograma - {corrida}")
+                plt.xlabel("Ri")
+                plt.ylabel("Frecuencia")
+                plt.grid(alpha=0.3)
+                plt.tight_layout()
+                plt.show()
             return
 
-        seq_validacion = GraficosService._transformar_seq_para_validacion(
-            seq,
-            metodo=metodo,
-            params_dist=params_dist,
-        )
+        seq_validacion = seq
 
         if tipo == "Kolmogorov Smirnov":
             graficar_kolmogorov_smirnov(seq_validacion)
@@ -221,9 +240,6 @@ class GraficosService:
         if not secuencias:
             raise ValueError("No hay corridas disponibles para graficar medias.")
 
-        if params_dist is None:
-            params_dist = {"a": 0.0, "b": 1.0, "mu": 0.0, "sigma": 1.0}
-
         alpha = 0.05
         z = float(norm.ppf(1 - alpha / 2))
 
@@ -239,11 +255,7 @@ class GraficosService:
             if metodo_objetivo is not None and metodo_i != metodo_objetivo:
                 continue
 
-            seq_validacion_i = GraficosService._transformar_seq_para_validacion(
-                seq_i,
-                metodo=metodo_i,
-                params_dist=params_dist,
-            )
+            seq_validacion_i = seq_i
 
             n_i = len(seq_validacion_i)
             if n_i < 2:
@@ -305,9 +317,6 @@ class GraficosService:
         if not secuencias:
             raise ValueError("No hay corridas disponibles para graficar varianza.")
 
-        if params_dist is None:
-            params_dist = {"a": 0.0, "b": 1.0, "mu": 0.0, "sigma": 1.0}
-
         alpha = 0.05
         var_teorica = 1 / 12
 
@@ -323,11 +332,7 @@ class GraficosService:
             if metodo_objetivo is not None and metodo_i != metodo_objetivo:
                 continue
 
-            seq_validacion_i = GraficosService._transformar_seq_para_validacion(
-                seq_i,
-                metodo=metodo_i,
-                params_dist=params_dist,
-            )
+            seq_validacion_i = seq_i
 
             n_i = len(seq_validacion_i)
             if n_i < 2:

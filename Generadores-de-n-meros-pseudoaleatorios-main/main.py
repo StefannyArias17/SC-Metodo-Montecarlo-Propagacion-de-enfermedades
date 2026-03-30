@@ -27,8 +27,8 @@ class App(ttk.Window):
         Diccionario de corridas con secuencias Ri truncadas.
     corridas_info : dict[str, tuple[str, object, list[float]]]
         Metadata por corrida: metodo, semilla y secuencia.
-    corridas_var : tk.IntVar
-        Variable enlazada al numero de corridas.
+    corridas_var : tk.StringVar
+        Variable enlazada al numero de corridas (opcional, por defecto 1).
     """
 
     def __init__(self):
@@ -40,7 +40,7 @@ class App(ttk.Window):
         self.semillas_archivo = []
         self.secuencias = {}
         self.corridas_info = {}
-        self.corridas_var = tk.IntVar(value=30)
+        self.corridas_var = tk.StringVar(value="1")
 
         self.semillas_service = SemillasService()
         self.generacion_service = GeneracionService()
@@ -155,6 +155,18 @@ class App(ttk.Window):
             self.chk_distribuciones.append(chk)
             row += 1
 
+        self.base_distribucion_var = tk.StringVar(value="")
+        self.lbl_base_dist = ttk.Label(dist_frame, text="Generador base:")
+        self.lbl_base_dist.grid(row=row, column=0, sticky="w", padx=6, pady=(8, 2))
+        row += 1
+        self.combo_base_dist = ttk.Combobox(
+            dist_frame,
+            textvariable=self.base_distribucion_var,
+            state="readonly",
+            width=28,
+        )
+        self.combo_base_dist.grid(row=row, column=0, sticky="we", padx=6, pady=(0, 2))
+
         right_column = ttk.Frame(config_frame)
         right_column.pack(side="right", fill="both", expand=True, padx=(5, 0))
 
@@ -183,7 +195,7 @@ class App(ttk.Window):
         self.entry_m = ttk.Entry(params_frame, textvariable=self.m_var, width=14)
         self.entry_m.grid(row=3, column=1, sticky="w")
 
-        self.lbl_corridas = ttk.Label(params_frame, text="Corridas:")
+        self.lbl_corridas = ttk.Label(params_frame, text="Corridas (opcional):")
         self.lbl_corridas.grid(row=4, column=0, sticky="w", pady=5)
         self.entry_corridas = ttk.Entry(
             params_frame,
@@ -204,13 +216,13 @@ class App(ttk.Window):
         self.entry_u_b = ttk.Entry(params_frame, textvariable=self.uniforme_b_var, width=12)
         self.entry_u_b.grid(row=6, column=1, sticky="w")
 
-        self.lbl_n_mu = ttk.Label(params_frame, text="Normal mu:")
+        self.lbl_n_mu = ttk.Label(params_frame, text="Normal/Media:")
         self.lbl_n_mu.grid(row=7, column=0, sticky="w", pady=5)
         self.normal_mu_var = tk.DoubleVar(value=0.0)
         self.entry_n_mu = ttk.Entry(params_frame, textvariable=self.normal_mu_var, width=12)
         self.entry_n_mu.grid(row=7, column=1, sticky="w")
 
-        self.lbl_n_sigma = ttk.Label(params_frame, text="Normal sigma:")
+        self.lbl_n_sigma = ttk.Label(params_frame, text="Normal/Desviacion estandar:")
         self.lbl_n_sigma.grid(row=8, column=0, sticky="w", pady=5)
         self.normal_sigma_var = tk.DoubleVar(value=1.0)
         self.entry_n_sigma = ttk.Entry(params_frame, textvariable=self.normal_sigma_var, width=12)
@@ -284,11 +296,11 @@ class App(ttk.Window):
 
         self.tabla_seq = ttk.Treeview(
             frame_seq,
-            columns=("corrida", "metodo", "semilla", "indice", "ri"),
+            columns=("corrida", "metodo", "indice", "ri"),
             show="headings",
             height=14,
         )
-        for c, w in [("corrida", 280), ("metodo", 210), ("semilla", 120), ("indice", 90), ("ri", 160)]:
+        for c, w in [("corrida", 280), ("metodo", 240), ("indice", 90), ("ri", 160)]:
             self.tabla_seq.heading(c, text=c)
             self.tabla_seq.column(c, width=w, anchor="center")
         self.tabla_seq.pack(fill="both", expand=True)
@@ -376,7 +388,11 @@ class App(ttk.Window):
                 raise ValueError("El archivo no contiene semillas validas.")
             self.semillas_archivo = semillas
             self.lbl_archivo.config(text=f"Archivo cargado: {path}")
-            messagebox.showinfo("Semillas", f"Se cargaron {len(semillas)} semillas.")
+            semillas_texto = ", ".join(str(s) for s in semillas)
+            messagebox.showinfo(
+                "Semillas",
+                f"Se cargaron {len(semillas)} semillas: {semillas_texto}",
+            )
         except Exception as e:
             messagebox.showerror("Error al cargar archivo", str(e))
 
@@ -406,30 +422,63 @@ class App(ttk.Window):
         return semillas
 
     def _actualizar_estado_corridas(self):
-        """Controla visibilidad del parametro de corridas segun pruebas activas."""
-        requiere_corridas = (
-            self.pruebas_vars["Medias"].get()
-            or self.pruebas_vars["Varianza"].get()
-        )
-        self._set_visibilidad_parametro(self.lbl_corridas, self.entry_corridas, requiere_corridas)
+        """Mantiene visible el parametro de corridas como opcional."""
+        self._set_visibilidad_parametro(self.lbl_corridas, self.entry_corridas, True)
+
+    def _obtener_total_corridas(self):
+        """Obtiene la cantidad de corridas desde el campo opcional.
+
+        Returns
+        -------
+        int
+            Numero de corridas. Si el campo esta vacio, retorna 1.
+
+        Raises
+        ------
+        ValueError
+            Si el valor no es un entero positivo.
+        """
+        texto_corridas = self.corridas_var.get().strip()
+        if not texto_corridas:
+            return 1
+
+        try:
+            total_corridas = int(texto_corridas)
+        except ValueError as e:
+            raise ValueError("Corridas debe ser un numero entero.") from e
+
+        if total_corridas <= 0:
+            raise ValueError("Corridas debe ser mayor a 0.")
+
+        return total_corridas
 
     def _actualizar_estado_distribuciones(self):
         """Sincroniza estado de metodos de distribucion y sus parametros."""
         hay_base = any(var.get() for var in self.metodos_vars.values())
         usa_uniforme = self.metodos_distribucion_vars["Distribucion Uniforme"].get()
         usa_normal = self.metodos_distribucion_vars["Distribucion Normal"].get()
+        usa_distribucion = usa_uniforme or usa_normal
 
         if not hay_base:
             for var in self.metodos_distribucion_vars.values():
                 var.set(False)
             usa_uniforme = False
             usa_normal = False
+            usa_distribucion = False
 
         for chk in self.chk_distribuciones:
             if hay_base:
                 chk.configure(state="normal")
             else:
                 chk.configure(state="disabled")
+
+        self._actualizar_opciones_base_distribucion()
+        self._set_visibilidad_parametro(self.lbl_base_dist, self.combo_base_dist, usa_distribucion)
+
+        if hay_base:
+            self.combo_base_dist.configure(state="readonly")
+        else:
+            self.combo_base_dist.configure(state="disabled")
 
         self._set_visibilidad_parametro(self.lbl_u_a, self.entry_u_a, usa_uniforme)
         self._set_visibilidad_parametro(self.lbl_u_b, self.entry_u_b, usa_uniforme)
@@ -446,7 +495,22 @@ class App(ttk.Window):
         self._set_visibilidad_parametro(self.lbl_digitos, self.entry_digitos, usa_cuadrados)
         self._set_visibilidad_parametro(self.lbl_a_mult, self.entry_a_mult, usa_multiplicativo)
         self._set_visibilidad_parametro(self.lbl_m, self.entry_m, usa_m)
+        self._actualizar_opciones_base_distribucion()
         self._actualizar_estado_distribuciones()
+
+    def _actualizar_opciones_base_distribucion(self):
+        """Sincroniza opciones del combo de base para transformaciones."""
+        metodos_base = [m for m, v in self.metodos_vars.items() if v.get()]
+        valor_actual = self.base_distribucion_var.get()
+
+        self.combo_base_dist["values"] = metodos_base
+
+        if not metodos_base:
+            self.base_distribucion_var.set("")
+            return
+
+        if valor_actual not in metodos_base:
+            self.base_distribucion_var.set(metodos_base[0])
 
     @staticmethod
     def _set_visibilidad_parametro(label_widget, entry_widget, visible):
@@ -530,17 +594,9 @@ class App(ttk.Window):
             Resultado de pruebas con detalle por prueba.
         """
         pruebas = [p for p, v in self.pruebas_vars.items() if v.get()]
-        params_dist = {
-            "a": self.uniforme_a_var.get(),
-            "b": self.uniforme_b_var.get(),
-            "mu": self.normal_mu_var.get(),
-            "sigma": self.normal_sigma_var.get(),
-        }
         return self.validacion_service.ejecutar_pruebas(
             seq,
             pruebas,
-            metodo=metodo,
-            params_dist=params_dist,
         )
 
     def _ejecutar(self):
@@ -563,17 +619,7 @@ class App(ttk.Window):
                     "Para usar distribuciones debes seleccionar al menos un generador base."
                 )
 
-            requiere_corridas = (
-                self.pruebas_vars["Medias"].get()
-                or self.pruebas_vars["Varianza"].get()
-            )
-            total_corridas = self.corridas_var.get() if requiere_corridas else 1
-            if total_corridas <= 0:
-                raise ValueError("Corridas debe ser mayor a 0.")
-            if requiere_corridas and total_corridas < 2:
-                raise ValueError(
-                    "Para Medias/Varianza debes usar al menos 2 corridas."
-                )
+            total_corridas = self._obtener_total_corridas()
 
             for i in self.tabla_seq.get_children():
                 self.tabla_seq.delete(i)
@@ -582,7 +628,7 @@ class App(ttk.Window):
             self.secuencias.clear()
             self.corridas_info.clear()
 
-            corridas_totales = {}
+            corridas_base = {}
 
             for metodo in metodos:
                 corridas = self._generar_por_metodo(
@@ -591,11 +637,50 @@ class App(ttk.Window):
                     pasos,
                     corridas=total_corridas,
                 )
-                corridas_totales.update(corridas)
+                corridas_base.update(corridas)
 
+            corridas_totales = dict(corridas_base)
+
+            # 1) Generar y validar solo corridas base.
+            for corrida, (met, sem, seq) in corridas_base.items():
+                seq_truncada = self._truncar_ri_5(seq)
+                self.secuencias[corrida] = seq_truncada
+                self.corridas_info[corrida] = (met, sem, seq_truncada)
+
+                for i, ri in enumerate(seq_truncada, start=1):
+                    self.tabla_seq.insert("", "end", values=(corrida, met, i, f"{ri:.5f}"))
+
+                res = self._ejecutar_pruebas(seq_truncada, met)
+                for prueba, ok, detalle in res:
+                    self.tabla_val.insert(
+                        "", "end",
+                        values=(corrida, prueba, "Aceptada" if ok else "Rechazada", detalle)
+                    )
+
+            corridas_dist = {}
             if metodos_distribucion:
+                metodo_base_dist = self.base_distribucion_var.get().strip()
+                if not metodo_base_dist:
+                    raise ValueError(
+                        "Selecciona un generador base para aplicar las distribuciones."
+                    )
+                if metodo_base_dist not in metodos:
+                    raise ValueError(
+                        "El generador base seleccionado para distribuciones no está activo."
+                    )
+
+                corridas_base_dist = {
+                    key: val
+                    for key, val in corridas_base.items()
+                    if val[0] == metodo_base_dist
+                }
+                if not corridas_base_dist:
+                    raise ValueError(
+                        "No se encontraron corridas del generador base seleccionado para aplicar distribuciones."
+                    )
+
                 corridas_dist = self.generacion_service.generar_distribuciones_desde_bases(
-                    corridas_base=corridas_totales,
+                    corridas_base=corridas_base_dist,
                     incluir_uniforme="Distribucion Uniforme" in metodos_distribucion,
                     incluir_normal="Distribucion Normal" in metodos_distribucion,
                     a=self.uniforme_a_var.get(),
@@ -605,20 +690,14 @@ class App(ttk.Window):
                 )
                 corridas_totales.update(corridas_dist)
 
-            for corrida, (met, sem, seq) in corridas_totales.items():
+            # 2) Agregar corridas transformadas sin pruebas.
+            for corrida, (met, sem, seq) in corridas_dist.items():
                 seq_truncada = self._truncar_ri_5(seq)
                 self.secuencias[corrida] = seq_truncada
                 self.corridas_info[corrida] = (met, sem, seq_truncada)
 
                 for i, ri in enumerate(seq_truncada, start=1):
-                    self.tabla_seq.insert("", "end", values=(corrida, met, sem, i, f"{ri:.5f}"))
-
-                res = self._ejecutar_pruebas(seq_truncada, met)
-                for prueba, ok, detalle in res:
-                    self.tabla_val.insert(
-                        "", "end",
-                        values=(corrida, prueba, "Aceptada" if ok else "Rechazada", detalle)
-                    )
+                    self.tabla_seq.insert("", "end", values=(corrida, met, i, f"{ri:.5f}"))
 
             self.combo_corrida["values"] = list(self.secuencias.keys())
             if self.secuencias:
@@ -641,8 +720,17 @@ class App(ttk.Window):
             return
 
         tipo = self.combo_grafico.get()
+        metodo = self.corridas_info.get(corrida, (None, None, None))[0]
+        es_distribucion = metodo in ("Distribucion Uniforme", "Distribucion Normal")
 
         if tipo != "Histograma":
+            if es_distribucion:
+                messagebox.showwarning(
+                    "Grafico",
+                    "Las pruebas solo aplican a corridas de generadores base."
+                )
+                return
+
             var_prueba = self.pruebas_vars.get(tipo)
             if var_prueba is None or not var_prueba.get():
                 messagebox.showwarning(
@@ -651,7 +739,6 @@ class App(ttk.Window):
                 )
                 return
 
-        metodo = self.corridas_info.get(corrida, (None, None, None))[0]
         params_dist = {
             "a": self.uniforme_a_var.get(),
             "b": self.uniforme_b_var.get(),

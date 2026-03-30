@@ -12,107 +12,514 @@ Requires-Dist: scipy>=1.10
 Provides-Extra: gui
 Requires-Dist: ttkbootstrap>=1.10; extra == "gui"
 
-# Generador de numeros pseudoaleatorios
+# Biblioteca de Generadores Pseudoaleatorios
 
-Este proyecto ya esta preparado para usarse como biblioteca reutilizable de Python.
+## 1. Descripcion del proyecto
 
-Incluye:
-- Generadores base (cuadrados medios, congruencia lineal, congruencial multiplicativo y aditivo).
-- Transformaciones de distribucion (uniforme y normal).
-- Pruebas de validacion estadistica (chi-cuadrado, KS, medias, varianza, poker y rachas).
-- Aplicacion GUI como cliente de la biblioteca.
+Este proyecto fue desarrollado para la materia de Simulacion y tiene como objetivo construir una biblioteca en Python para generar numeros pseudoaleatorios, transformarlos a distintas distribuciones y validar su calidad estadistica.
 
-## Instalacion como biblioteca
+La idea central es que, antes de usar numeros en un modelo de simulacion, podamos verificar si el generador se comporta de manera adecuada (uniformidad, independencia y estadisticas esperadas).
 
-Desde la raiz del proyecto:
+Ademas de la biblioteca, el proyecto incluye una interfaz grafica en `main.py` para ejecutar todo el flujo sin necesidad de programar cada paso a mano.
 
-```bash
-pip install .
+## 2. Estructura general del proyecto
+
+```text
+GeneradorNPseudoaleatorios/
+├── main.py
+├── README.md
+├── pyproject.toml
+├── requirements.txt
+├── app_services/
+├── generador_npseudoaleatorios/
+├── generador_numeros/
+├── distribuciones/
+├── validadores/
+└── visualizaciones/
 ```
 
-Si tambien quieres ejecutar la GUI desde el comando instalado:
+Carpetas principales:
 
-```bash
-pip install .[gui]
+1. `generador_numeros/`: implementa los generadores base.
+2. `distribuciones/`: transforma una secuencia base a Uniforme o Normal.
+3. `validadores/`: pruebas estadisticas para validar secuencias.
+4. `app_services/`: capa de servicios que conecta generacion, validacion, graficas y exportacion.
+5. `generador_npseudoaleatorios/`: API publica de la biblioteca para usar desde proyectos externos.
+6. `visualizaciones/`: funciones de graficas para histogramas y pruebas.
+7. `main.py`: interfaz grafica (GUI).
+
+## 3. Generadores implementados
+
+### 3.1 Metodo de los Cuadrados Medios
+
+Clase: `GeneradorCuadradosMedios`
+
+Se toma la semilla, se eleva al cuadrado y se extraen los digitos centrales para formar el siguiente valor. Luego se normaliza al intervalo [0,1).
+
+Funcion importante:
+
+#### `siguiente_Ri_Cuadrados_Medios(pasos)`
+
+- Descripcion: genera `pasos` valores pseudoaleatorios `Ri`.
+- Parametros:
+	- `pasos (int)`: cantidad de numeros a generar.
+- Retorno:
+	- `list[float]`: secuencia de `Ri`.
+
+Ejemplo:
+
+```python
+from generador_numeros import GeneradorCuadradosMedios
+
+gen = GeneradorCuadradosMedios(semilla=12345678, digitos=8)
+ri = gen.siguiente_Ri_Cuadrados_Medios(10)
+print(ri)
 ```
 
-## API publica
+### 3.2 Generador Congruencial Lineal
 
-La API principal esta en el paquete `generador_npseudoaleatorios`.
+Clase: `GeneradorCongruenciaLineal`
 
-### Ejemplo rapido
+Usa la formula clasica:
+
+$$
+X_{n+1} = (aX_n + c) \bmod m, \quad R_i = X_i/m
+$$
+
+Funcion importante:
+
+#### `siguiente_Ri_Congruencia_Lineal(pasos)`
+
+- Descripcion: genera la secuencia `Ri` con parametros internos del metodo.
+- Parametros:
+	- `pasos (int)`: cantidad de valores.
+- Retorno:
+	- `list[float]`: secuencia normalizada.
+
+Ejemplo:
+
+```python
+from generador_numeros import GeneradorCongruenciaLineal
+
+gen = GeneradorCongruenciaLineal(semilla=12345)
+ri = gen.siguiente_Ri_Congruencia_Lineal(10)
+print(ri[:5])
+```
+
+### 3.3 Generador Congruencial Multiplicativo
+
+Clase: `GeneradorCongruencialMultiplicativo`
+
+Usa la formula:
+
+$$
+X_{n+1} = (aX_n) \bmod m
+$$
+
+Funcion importante:
+
+#### `siguiente_Ri_Congruencial_Multiplicativo(pasos)`
+
+- Descripcion: genera `Ri` con el esquema multiplicativo.
+- Parametros:
+	- `pasos (int)`: cantidad de numeros.
+- Retorno:
+	- `list[float]`: secuencia en [0,1).
+
+Ejemplo:
+
+```python
+from generador_numeros import GeneradorCongruencialMultiplicativo
+
+gen = GeneradorCongruencialMultiplicativo(semilla=12345, a=1664525, m=2**32)
+ri = gen.siguiente_Ri_Congruencial_Multiplicativo(10)
+print(ri)
+```
+
+### 3.4 Generador Congruencial Aditivo
+
+Clase: `GeneradorCongruencialAditivo`
+
+Usa dos estados anteriores:
+
+$$
+X_n = (X_{n-1} + X_{n-2}) \bmod m
+$$
+
+Funcion importante:
+
+#### `siguiente_Ri_Congruencial_Aditivo(pasos)`
+
+- Descripcion: genera `Ri` con semillas iniciales multiples.
+- Parametros:
+	- `pasos (int)`: cantidad de numeros.
+- Retorno:
+	- `list[float]`: secuencia pseudoaleatoria.
+
+Ejemplo:
+
+```python
+from generador_numeros import GeneradorCongruencialAditivo
+
+gen = GeneradorCongruencialAditivo(semillas_iniciales=[7, 13], m=2**32)
+ri = gen.siguiente_Ri_Congruencial_Aditivo(10)
+print(ri)
+```
+
+## 4. Transformaciones de distribucion
+
+### 4.1 Transformacion a distribucion Uniforme
+
+Clase: `GeneradorDistribucionUniforme`
+
+Transforma un `U(0,1)` base a `U(a,b)` con:
+
+$$
+X = a + U(b-a)
+$$
+
+Funcion importante:
+
+#### `generar(uniformes_base)`
+
+- Descripcion: aplica la transformacion inversa a toda la lista.
+- Parametros:
+	- `uniformes_base (list[float])`: secuencia base en [0,1).
+- Retorno:
+	- `list[float]`: secuencia transformada en [a,b).
+
+Ejemplo:
+
+```python
+from distribuciones import GeneradorDistribucionUniforme
+
+base = [0.1, 0.5, 0.9]
+gen_u = GeneradorDistribucionUniforme(a=10, b=20)
+x = gen_u.generar(base)
+print(x)
+```
+
+### 4.2 Distribucion Normal por Box-Muller
+
+Clase: `GeneradorDistribucionNormal`
+
+Convierte pares de uniformes en normales estandar y luego escala con `mu` y `sigma`.
+
+Funcion importante:
+
+#### `generar(uniformes_base)`
+
+- Descripcion: transforma secuencia base `(0,1)` a `N(mu, sigma^2)`.
+- Parametros:
+	- `uniformes_base (list[float])`: secuencia base.
+- Retorno:
+	- `list[float]`: muestra normal.
+
+Ejemplo:
+
+```python
+from distribuciones import GeneradorDistribucionNormal
+
+base = [0.12, 0.73, 0.41, 0.88]
+gen_n = GeneradorDistribucionNormal(mu=0.0, sigma=1.0)
+z = gen_n.generar(base)
+print(z)
+```
+
+## 5. Pruebas de validacion
+
+Estas pruebas se aplican a las secuencias para revisar calidad estadistica.
+
+### 5.1 Prueba de Medias
+
+Clase: `PruebaMedias`
+
+#### `prueba_medias(numeros_aleatorios)`
+
+- Descripcion: evalua si la media muestral es consistente con 0.5.
+- Parametros:
+	- `numeros_aleatorios (list[float])`
+- Retorno:
+	- `bool` (`True` si acepta, `False` si rechaza)
+
+Ejemplo:
+
+```python
+from validadores import PruebaMedias
+
+ok = PruebaMedias().prueba_medias([0.11, 0.32, 0.77, 0.95, 0.49])
+print(ok)
+```
+
+### 5.2 Prueba de Varianza
+
+Clase: `PruebaVarianza`
+
+#### `prueba_varianza(numeros_aleatorios)`
+
+- Descripcion: compara la varianza muestral con el rango esperado para U(0,1).
+- Parametros:
+	- `numeros_aleatorios (list[float])`
+- Retorno:
+	- `bool`
+
+Ejemplo:
+
+```python
+from validadores import PruebaVarianza
+
+ok = PruebaVarianza().prueba_varianza([0.21, 0.63, 0.47, 0.89, 0.15])
+print(ok)
+```
+
+### 5.3 Prueba Chi-cuadrado
+
+Clase: `PruebaChiCuadrado`
+
+#### `prueba_chi_cuadrado(numeros_aleatorios, k=1000)`
+
+- Descripcion: compara frecuencias observadas y esperadas en intervalos.
+- Parametros:
+	- `numeros_aleatorios (list[float])`
+	- `k (int)`: numero de clases.
+- Retorno:
+	- `bool`
+
+Ejemplo:
+
+```python
+from validadores import PruebaChiCuadrado
+
+ok = PruebaChiCuadrado().prueba_chi_cuadrado([0.1, 0.2, 0.3, 0.4, 0.5], k=5)
+print(ok)
+```
+
+### 5.4 Prueba Kolmogorov-Smirnov
+
+Clase: `PruebaKolmogorovSmirnov`
+
+#### `prueba_kolmogorov_smirnov(numeros_aleatorios, alpha=0.05)`
+
+- Descripcion: usa la maxima diferencia entre F empirica y F teorica.
+- Parametros:
+	- `numeros_aleatorios (list[float])`
+	- `alpha (float)`: nivel de significancia.
+- Retorno:
+	- `bool`
+
+Ejemplo:
+
+```python
+from validadores import PruebaKolmogorovSmirnov
+
+ok = PruebaKolmogorovSmirnov().prueba_kolmogorov_smirnov([0.14, 0.52, 0.73, 0.88])
+print(ok)
+```
+
+### 5.5 Prueba de Poker
+
+Clase: `PruebaPoker`
+
+Funciones importantes:
+
+#### `clasificar_categoria(digitos)`
+
+- Descripcion: clasifica una mano de 5 digitos (par, tercia, poker, etc.).
+- Parametros:
+	- `digitos (str)`
+- Retorno:
+	- `str`
+
+#### `prueba_poker(numeros_aleatorios)`
+
+- Descripcion: aplica chi-cuadrado sobre categorias de poker.
+- Parametros:
+	- `numeros_aleatorios (list[float])`
+- Retorno:
+	- `bool`
+
+Ejemplo:
+
+```python
+from validadores import PruebaPoker
+
+ok = PruebaPoker().prueba_poker([0.12345, 0.55661, 0.77770, 0.10101])
+print(ok)
+```
+
+### 5.6 Prueba de Rachas
+
+Clase: `PruebaRachas`
+
+#### `prueba_rachas(numeros_aleatorios, alpha=0.05)`
+
+- Descripcion: analiza cambios de signo respecto a la mediana 0.5.
+- Parametros:
+	- `numeros_aleatorios (list[float])`
+	- `alpha (float)`
+- Retorno:
+	- `bool`
+
+Ejemplo:
+
+```python
+from validadores import PruebaRachas
+
+ok = PruebaRachas().prueba_rachas([0.1, 0.8, 0.2, 0.9, 0.3, 0.7])
+print(ok)
+```
+
+## 6. Funciones importantes de la API y servicios
+
+### 6.1 API publica (`generador_npseudoaleatorios`)
+
+Clase: `BibliotecaGeneradorPseudoaleatorio`
+
+#### `generar_base(metodo, semillas, pasos, corridas=1, digitos=8, a_mult=1664525, m=2**32, truncar_ri=True)`
+
+- Descripcion: genera corridas base por el metodo seleccionado.
+- Parametros principales:
+	- `metodo (str)`
+	- `semillas (list[int])`
+	- `pasos (int)`
+	- `corridas (int)`
+- Retorno:
+	- `dict` con corridas y secuencias.
+
+Ejemplo:
 
 ```python
 from generador_npseudoaleatorios import BibliotecaGeneradorPseudoaleatorio
 
 bib = BibliotecaGeneradorPseudoaleatorio()
-
-corridas = bib.generar_base(
-	metodo="Congruencia Lineal",
-	semillas=[12345],
-	pasos=1000,
-	corridas=3,
-)
-
-for nombre, (metodo, semilla, secuencia) in corridas.items():
-	resultados = bib.validar(
-		secuencia=secuencia,
-		pruebas_activas=["Chi Cuadrado", "Kolmogorov Smirnov"],
-		metodo=metodo,
-		params_dist={"a": 0.0, "b": 1.0, "mu": 0.0, "sigma": 1.0},
-	)
-	print(nombre, resultados)
+out = bib.generar_base("Congruencia Lineal", [12345], 100, corridas=2)
+print(list(out.keys())[:2])
 ```
 
-### Pipeline completo
+#### `generar_distribuciones(corridas_base, incluir_uniforme=False, incluir_normal=False, a=0.0, b=1.0, mu=0.0, sigma=1.0)`
+
+- Descripcion: transforma corridas base a distribuciones.
+- Retorno:
+	- `dict` con nuevas corridas de distribucion.
+
+Ejemplo:
 
 ```python
-from generador_npseudoaleatorios import BibliotecaGeneradorPseudoaleatorio
+dist = bib.generar_distribuciones(out, incluir_uniforme=True, a=10, b=50)
+print(len(dist))
+```
 
-bib = BibliotecaGeneradorPseudoaleatorio()
+#### `validar(secuencia, pruebas_activas, metodo=None, params_dist=None)`
 
+- Descripcion: ejecuta pruebas seleccionadas.
+- Retorno:
+	- `list[tuple]` con `(prueba, aceptada, detalle)`.
+
+Ejemplo:
+
+```python
+seq = next(iter(out.values()))[2]
+res = bib.validar(seq, ["Chi Cuadrado", "Medias"], metodo="Congruencia Lineal")
+print(res)
+```
+
+#### `ejecutar_pipeline(...)`
+
+- Descripcion: hace todo el flujo completo en una sola llamada.
+- Retorno:
+	- `list[ResultadoCorrida]`.
+
+Ejemplo:
+
+```python
 resultados = bib.ejecutar_pipeline(
-	metodos_base=["Congruencia Lineal", "Cuadrados Medios"],
-	semillas=[1234, 5678],
-	pasos=500,
-	corridas=5,
-	pruebas_activas=["Chi Cuadrado", "Medias", "Varianza"],
-	incluir_uniforme=True,
-	incluir_normal=True,
-	a=10,
-	b=50,
-	mu=0,
-	sigma=1,
+		metodos_base=["Congruencia Lineal"],
+		semillas=[12345],
+		pasos=200,
+		corridas=3,
+		pruebas_activas=["Chi Cuadrado", "Kolmogorov Smirnov"],
 )
-
-for corrida in resultados:
-	print(corrida.corrida, corrida.metodo, len(corrida.secuencia))
+print(resultados[0].corrida)
 ```
 
-## Ejecutar la GUI
+### 6.2 Servicios internos (`app_services`)
 
-En desarrollo local:
+#### `SemillasService.parsear_texto(texto)`
+
+- Descripcion: parsea semillas separadas por coma, espacio o `;`.
+- Parametros:
+	- `texto (str)`
+- Retorno:
+	- `list[int]`
+
+Ejemplo:
+
+```python
+from app_services.semillas_service import SemillasService
+print(SemillasService.parsear_texto("12, 45; 99"))
+```
+
+#### `SemillasService.leer_archivo(path)`
+
+- Descripcion: lee archivo de semillas y devuelve lista parseada.
+- Retorno:
+	- `list[int]`
+
+#### `GeneracionService.generar_por_metodo(...)`
+
+- Descripcion: capa de orquestacion para generar por nombre de metodo.
+- Retorno:
+	- `dict` de corridas.
+
+#### `GeneracionService.generar_distribuciones_desde_bases(...)`
+
+- Descripcion: aplica transformaciones de distribucion a corridas base.
+- Retorno:
+	- `dict` de corridas transformadas.
+
+#### `ValidacionService.ejecutar_pruebas(seq, pruebas_activas, metodo=None, params_dist=None)`
+
+- Descripcion: transforma (si aplica) y ejecuta todas las pruebas activas.
+- Retorno:
+	- `list[tuple]`.
+
+#### `GraficosService.mostrar(tipo, corrida, seq, secuencias, metodo=None, params_dist=None, corridas_info=None)`
+
+- Descripcion: abre la grafica seleccionada (histograma o prueba).
+- Retorno:
+	- no retorna valor util (muestra grafica).
+
+#### `ExportacionService.exportar_treeview_csv(treeview, columnas, sugerido)`
+
+- Descripcion: exporta una tabla de interfaz a CSV.
+- Retorno:
+	- no retorna valor.
+
+## 7. Como ejecutar el proyecto (main.py)
+
+### Opcion 1: desde codigo fuente
 
 ```bash
 python main.py
 ```
 
-Despues de instalar con extra de GUI:
+### Opcion 2: como comando (si instala gui)
 
 ```bash
 gnp-gui
 ```
 
-## Estructura principal
+Pasos rapidos en la GUI:
 
-- `generador_npseudoaleatorios/`: API publica de biblioteca.
-- `app_services/`: servicios de generacion, validacion, graficos y exportacion.
-- `generador_numeros/`: algoritmos base de generacion.
-- `distribuciones/`: transformaciones de distribucion.
-- `validadores/`: pruebas estadisticas.
-- `visualizaciones/`: funciones de graficacion.
+1. Seleccionar modo de semillas (manual o archivo).
+2. Elegir metodos de generacion.
+3. Configurar parametros (`pasos`, `corridas`, `a`, `b`, `mu`, `sigma`, etc.).
+4. Presionar "Ejecutar".
+5. Revisar tablas de secuencias y validaciones.
+6. Graficar resultados y exportar CSV si es necesario.
 
-## Notas
+## 8. Notas finales
 
-- Para resultados consistentes, la API trunca los `Ri` a 5 decimales por defecto.
-- Las validaciones de distribuciones se transforman a escala U(0,1) antes de aplicar las pruebas actuales.
+1. El proyecto evita usar `random` y `numpy.random` para construir los generadores base.
+2. Para Normal se usa Box-Muller y se maneja el caso impar con inversa normal.
+3. Para consistencia de salida, los `Ri` se truncan a 5 decimales.

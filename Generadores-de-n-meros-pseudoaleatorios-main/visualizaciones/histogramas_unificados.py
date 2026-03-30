@@ -108,6 +108,33 @@ def _visualizar_muestra(
     )
 
 
+def _calcular_intervalos_frecuencias(numeros, cantidad_intervalos):
+    """Calcula limites y frecuencias con logica min/max de clase."""
+    minimo = min(numeros)
+    maximo = max(numeros)
+
+    if minimo == maximo:
+        intervalos = [minimo for _ in range(cantidad_intervalos)]
+        frecuencias = [len(numeros)] + [0] * (cantidad_intervalos - 1)
+        return intervalos, frecuencias
+
+    ancho_intervalo = (maximo - minimo) / cantidad_intervalos
+    intervalos = [minimo]
+    for _ in range(1, cantidad_intervalos):
+        intervalos.append(intervalos[-1] + ancho_intervalo)
+
+    frecuencias = [0] * cantidad_intervalos
+    for valor in numeros:
+        indice = int((valor - minimo) / ancho_intervalo)
+        if indice < 0:
+            indice = 0
+        elif indice >= cantidad_intervalos:
+            indice = cantidad_intervalos - 1
+        frecuencias[indice] += 1
+
+    return intervalos, frecuencias
+
+
 def visualizar_histograma_cuadrados_medios(semilla, digitos, pasos, bins=50):
     """Grafica histogramas del método Cuadrados Medios.
 
@@ -296,20 +323,52 @@ def visualizar_histograma_distribucion_normal(
     gen_normal = GeneradorDistribucionNormal(mu=mu, sigma=sigma)
     numeros = gen_normal.generar(uniformes_ajustados)[:pasos]
 
+    intervalos, frecuencias = _calcular_intervalos_frecuencias(numeros, bins)
+    ancho_intervalo = 1.0
+    if len(intervalos) > 1:
+        ancho_intervalo = intervalos[1] - intervalos[0]
+
     titulo = (
         "Histograma de Frecuencia - Distribucion Normal\n"
         f"Semilla: {semilla}, mu: {mu}, sigma: {sigma}, Muestras: {pasos}"
     )
 
-    _visualizar_muestra(
-        numeros=numeros,
-        titulo=titulo,
-        esperado_texto=f"normal: mu = {mu}, sigma = {sigma}",
-        bins=bins,
-        rango=None,
-        xticks=None,
-        x_label="Valor",
+    _imprimir_estadisticas(numeros, f"normal: mu = {mu}, sigma = {sigma}")
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+    ax1.bar(
+        intervalos,
+        frecuencias,
+        width=ancho_intervalo,
+        align="edge",
+        color="steelblue",
+        edgecolor="black",
+        alpha=0.75,
     )
+    ax1.set_title("Vista Normal")
+    ax1.set_xlabel("Valor")
+    ax1.set_ylabel("Frecuencia")
+    ax1.grid(axis="y", alpha=0.3)
+
+    ax2.bar(
+        intervalos,
+        frecuencias,
+        width=ancho_intervalo,
+        align="edge",
+        color="coral",
+        edgecolor="black",
+        alpha=0.75,
+    )
+    ax2.set_title("Escala Logaritmica")
+    ax2.set_xlabel("Valor")
+    ax2.set_ylabel("Frecuencia (log)")
+    ax2.set_yscale("log")
+    ax2.grid(axis="y", alpha=0.3, which="both")
+
+    plt.suptitle(titulo, fontsize=12, fontweight="bold")
+    plt.tight_layout()
+    plt.show()
 
 
 __all__ = [

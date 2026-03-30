@@ -10,7 +10,6 @@ Formulas base:
 """
 
 import math
-from statistics import NormalDist
 
 
 class GeneradorDistribucionNormal:
@@ -29,7 +28,6 @@ class GeneradorDistribucionNormal:
 
     # Constante: 2π precalculada para evitar recomputarla en cada iteración
     _DOS_PI: float = 2.0 * math.pi
-    _NORMAL_STD: NormalDist = NormalDist(mu=0.0, sigma=1.0)
 
     def __init__(self, mu: float = 0.0, sigma: float = 1.0):
         """Inicializa el generador.
@@ -67,7 +65,8 @@ class GeneradorDistribucionNormal:
         Raises
         ------
         ValueError
-            Si la lista esta vacia o contiene valores fuera de (0, 1).
+            Si la lista esta vacia, tiene cantidad impar o contiene
+            valores fuera de (0, 1).
         """
         self._validar_entrada(uniformes_base)
 
@@ -87,11 +86,6 @@ class GeneradorDistribucionNormal:
             muestra.append(self.mu + self.sigma * z2)
 
             i += 2
-
-        # Si n es impar, transformar el último uniforme con inversa normal.
-        if n % 2 != 0:
-            z = self._inversa_normal_estandar(uniformes_base[-1])
-            muestra.append(self.mu + self.sigma * z)
 
         return muestra
 
@@ -113,15 +107,17 @@ class GeneradorDistribucionNormal:
 
         return z1, z2
 
-    def _inversa_normal_estandar(self, u: float) -> float:
-        """Obtiene z tal que P(Z <= z) = u para Z ~ N(0, 1)."""
-        return self._NORMAL_STD.inv_cdf(u)
-
     def _validar_entrada(self, uniformes_base: list[float]) -> None:
         """Valida que la lista de entrada no sea vacia y que todos sus valores esten en (0, 1)."""
         if not uniformes_base:
             raise ValueError(
                 "La lista 'uniformes_base' no puede estar vacía."
+            )
+
+        if len(uniformes_base) % 2 != 0:
+            raise ValueError(
+                "La cantidad de valores en 'uniformes_base' debe ser par "
+                "para aplicar Box-Muller en pares (U1, U2)."
             )
 
         for i, u in enumerate(uniformes_base):

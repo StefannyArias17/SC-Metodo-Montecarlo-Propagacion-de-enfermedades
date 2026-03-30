@@ -1,9 +1,30 @@
-import math
 from collections import Counter
 
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import chi2, ksone, norm  
+
+from validadores.prueba_chi_cuadrado import PruebaChiCuadrado
+from validadores.prueba_kolmogorov_smirnov import PruebaKolmogorovSmirnov
+from validadores.prueba_poker import PruebaPoker
+from validadores.prueba_rachas import PruebaRachas
+
+
+def _agregar_etiqueta_resultado(ax, aceptada):
+    """Dibuja una etiqueta de resultado (aceptada/rechazada) en el eje."""
+    texto = "Prueba aceptada" if aceptada else "Prueba rechazada"
+    color = "green" if aceptada else "red"
+    ax.text(
+        0.02,
+        0.95,
+        texto,
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=11,
+        fontweight="bold",
+        color=color,
+        bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "edgecolor": color, "alpha": 0.85},
+    )
 
 
 def graficar_kolmogorov_smirnov(numeros_aleatorios, alpha=0.05):
@@ -27,55 +48,82 @@ def graficar_kolmogorov_smirnov(numeros_aleatorios, alpha=0.05):
     if not numeros_aleatorios:
         raise ValueError("La lista de numeros no puede estar vacia.")
 
+    detalle = PruebaKolmogorovSmirnov().prueba_kolmogorov_smirnov(
+        numeros_aleatorios,
+        alpha=alpha,
+        return_detalle=True,
+    )
+
     n = len(numeros_aleatorios)
     datos_ordenados = np.sort(np.asarray(numeros_aleatorios, dtype=float))
 
     # FEC: i/n para cada observacion ordenada x_i.
-    fec = np.arange(1, n + 1) / n
+    fec_superior = np.arange(1, n + 1) / n
+    fec_inferior = np.arange(0, n) / n
 
     # Para U(0,1), F_teorica(x_i) = x_i.
     f_teorica = datos_ordenados
-    diferencias = np.abs(fec - f_teorica)
-
+    d_plus = fec_superior - f_teorica
+    d_menos = f_teorica - fec_inferior
+    diferencias = np.maximum(d_plus, d_menos)
     idx_max = int(np.argmax(diferencias))
-    d_max = float(diferencias[idx_max])
+    d_max = float(detalle["d_max"])
+    d_critico = float(detalle["d_critico"])
+    aceptada = bool(detalle["aceptada"])
 
-    if n > 50:
-        d_critico = 1.36 / math.sqrt(n)
-    else:
-        d_critico = float(ksone.ppf(1 - alpha / 2, n))
-
-    aceptada = d_max < d_critico
-
-    plt.figure(figsize=(10, 6))
+    fig, (ax1, ax2) = plt.subplots(
+        2,
+        1,
+        figsize=(11, 8),
+        gridspec_kw={"height_ratios": [3, 2]},
+        sharex=True,
+    )
 
     # Curva teorica de la uniforme: F(x) = x.
     x_ref = np.linspace(0, 1, 200)
-    plt.plot(x_ref, x_ref, label="F teorica U(0,1)", color="black", linewidth=2)
+    ax1.plot(x_ref, x_ref, label="F teorica U(0,1)", color="black", linewidth=2)
 
     # FEC como funcion escalonada.
-    plt.step(datos_ordenados, fec, where="post", label="FEC", color="steelblue")
+    ax1.step(
+        datos_ordenados,
+        fec_superior,
+        where="post",
+        label="FEC",
+        color="steelblue",
+        linewidth=1.8,
+    )
 
     x_d = float(datos_ordenados[idx_max])
-    y_emp = float(fec[idx_max])
+    y_emp = float(fec_superior[idx_max])
     y_teo = float(f_teorica[idx_max])
 
-    plt.vlines(
+    ax1.vlines(
         x_d,
         min(y_emp, y_teo),
         max(y_emp, y_teo),
         colors="crimson",
-        linewidth=2,
+        linewidth=2.2,
         label=f"D max = {d_max:.5f}",
     )
 
-    plt.title("Prueba Kolmogorov-Smirnov: FEC vs Teorica Uniforme")
-    plt.xlabel("x")
-    plt.ylabel("F(x)")
-    plt.xlim(0, 1)
-    plt.ylim(0, 1.02)
-    plt.grid(alpha=0.3)
-    plt.legend()
+    ax1.set_title("Prueba Kolmogorov-Smirnov: FEC vs Teorica Uniforme")
+    ax1.set_ylabel("F(x)")
+    ax1.set_xlim(0, 1)
+    ax1.set_ylim(0, 1.02)
+    ax1.grid(alpha=0.3)
+    ax1.legend()
+
+    # Panel de diferencias para visualizar mejor la separación entre curvas.
+    ax2.plot(datos_ordenados, d_plus, color="royalblue", linewidth=1.5, label="D+ = i/n - F(xi)")
+    ax2.plot(datos_ordenados, d_menos, color="darkorange", linewidth=1.5, label="D- = F(xi) - (i-1)/n")
+    ax2.axhline(d_critico, color="seagreen", linestyle="--", linewidth=1.8, label=f"D critico = {d_critico:.5f}")
+    ax2.scatter([x_d], [d_max], color="crimson", s=35, zorder=3, label=f"D max = {d_max:.5f}")
+    ax2.set_xlabel("x")
+    ax2.set_ylabel("Diferencia")
+    ax2.grid(alpha=0.3)
+    ax2.legend(loc="upper right")
+    _agregar_etiqueta_resultado(ax1, aceptada)
+
     plt.tight_layout()
     plt.show()
 
@@ -127,11 +175,15 @@ def graficar_prueba_poker(numeros_aleatorios):
     dict
         Frecuencias observadas/esperadas por categoria.
     """
+    escala = 100000
+    poker_enteros = [int(float(num) * escala) for num in numeros_aleatorios]
+    numeros_truncados = [valor / escala for valor in poker_enteros]
+    
     if not numeros_aleatorios:
         raise ValueError("La lista de numeros no puede estar vacia.")
 
     n = len(numeros_aleatorios)
-    poker_numeros = [f"{num:.5f}"[2:] for num in numeros_aleatorios]
+    poker_numeros = [f"{valor:05d}" for valor in poker_enteros]
 
     categorias = [
         "Todos Diferentes",
@@ -159,6 +211,7 @@ def graficar_prueba_poker(numeros_aleatorios):
         observadas[categoria] += 1
 
     esperadas = {categoria: n * probabilidades[categoria] for categoria in categorias}
+    aceptada = bool(PruebaPoker().prueba_poker(numeros_truncados))
 
     x = np.arange(len(categorias))
     ancho = 0.38
@@ -187,6 +240,7 @@ def graficar_prueba_poker(numeros_aleatorios):
     plt.ylabel("Frecuencia")
     plt.grid(axis="y", alpha=0.3)
     plt.legend()
+    _agregar_etiqueta_resultado(plt.gca(), aceptada)
     plt.tight_layout()
     plt.show()
 
@@ -221,42 +275,21 @@ def graficar_prueba_rachas(numeros_aleatorios, alpha=0.05):
     """
     if not numeros_aleatorios:
         raise ValueError("La lista de numeros no puede estar vacia.")
-
     if len(numeros_aleatorios) < 2:
         raise ValueError("Se requieren al menos 2 datos para la prueba de rachas.")
 
-    mediana_teorica = 0.5
-    signos = [1 if num >= mediana_teorica else 0 for num in numeros_aleatorios]
+    detalle = PruebaRachas().prueba_rachas(
+        numeros_aleatorios,
+        alpha=alpha,
+        return_detalle=True,
+    )
 
-    rachas_observadas = 1
-    for i in range(1, len(signos)):
-        if signos[i] != signos[i - 1]:
-            rachas_observadas += 1
-
-    n = len(numeros_aleatorios)
-    n_pos = sum(signos)
-    n_neg = n - n_pos
-    numerador = 2 * n_pos * n_neg
-
-    rachas_esperadas = (numerador / n) + 1
-    varianza_rachas = (numerador * (numerador - n)) / ((n**2) * (n - 1))
-
-    if varianza_rachas <= 0:
-        raise ValueError(
-            "No se puede calcular la prueba de rachas: varianza no positiva."
-        )
-
-    z_estadistico = (rachas_observadas - rachas_esperadas) / math.sqrt(varianza_rachas)
-
-    z_teorico = float(norm.ppf(1 - alpha / 2))
-    z_min = -z_teorico
-    z_max = z_teorico
-
-   
-    rachas_min = rachas_esperadas + z_min * math.sqrt(varianza_rachas)
-    rachas_max = rachas_esperadas + z_max * math.sqrt(varianza_rachas)
-
-    aceptada = z_min <= z_estadistico <= z_max
+    rachas_observadas = int(detalle["rachas_observadas"])
+    rachas_esperadas = float(detalle["rachas_esperadas"])
+    rachas_min = float(detalle["rachas_min"])
+    rachas_max = float(detalle["rachas_max"])
+    z_estadistico = float(detalle["z_estadistico"])
+    aceptada = bool(detalle["aceptada"])
 
     plt.figure(figsize=(9, 6))
     etiquetas = ["Rachas Observadas", "Rachas Esperadas"]
@@ -278,6 +311,7 @@ def graficar_prueba_rachas(numeros_aleatorios, alpha=0.05):
     plt.ylabel("Cantidad de rachas")
     plt.grid(axis="y", alpha=0.3)
     plt.legend()
+    _agregar_etiqueta_resultado(plt.gca(), aceptada)
     plt.tight_layout()
     plt.show()
 
@@ -413,6 +447,7 @@ def graficar_prueba_medias(sample_means, ci_lower, ci_upper, theoretical_mean=0.
     ax.set_xlim(-1.2, len(experiment_ids) + 2.0)
 
     ax.legend()
+    _agregar_etiqueta_resultado(ax, aceptada)
     plt.tight_layout()
     
     print("\n--- Resumen Medias ---")
@@ -556,6 +591,7 @@ def graficar_prueba_varianza(
     ax.set_xlim(-1.2, len(experiment_ids) + 2.0)
 
     ax.legend()
+    _agregar_etiqueta_resultado(ax, aceptada)
     plt.tight_layout()
     print("\n--- Resumen Varianza ---")
     print(f"Varianza calculada (promedio): {np.mean(sample_variances):.8f}")
@@ -600,25 +636,23 @@ def graficar_prueba_chi_cuadrado(numeros_aleatorios, k=10, alpha=0.05):
     if not numeros_aleatorios:
         raise ValueError("La lista de numeros no puede estar vacia.")
 
-    datos = np.asarray(numeros_aleatorios, dtype=float)
-
-    if np.any((datos < 0) | (datos >= 1)):
-        raise ValueError("Todos los valores deben estar en el intervalo [0, 1).")
-
-    n = len(datos)
-    bins = np.linspace(0, 1, k + 1)
-
-    frecuencias_observadas, _ = np.histogram(datos, bins=bins)
-    frecuencias_esperadas = np.full(k, n / k)
-
-    chi_calculado = float(
-        np.sum(
-            ((frecuencias_observadas - frecuencias_esperadas) ** 2)
-            / frecuencias_esperadas
-        )
+    detalle = PruebaChiCuadrado().prueba_chi_cuadrado(
+        numeros_aleatorios,
+        k=k,
+        alpha=alpha,
+        return_detalle=True,
     )
-    chi_critico = float(chi2.ppf(1 - alpha, df=k - 1))
-    aceptada = chi_calculado < chi_critico
+
+    if not detalle["frecuencias_observadas"]:
+        raise ValueError("No se pudieron calcular frecuencias para la prueba Chi-Cuadrado.")
+
+    frecuencias_observadas = np.asarray(detalle["frecuencias_observadas"], dtype=float)
+    frecuencias_esperadas = np.asarray(detalle["frecuencias_esperadas"], dtype=float)
+    chi_calculado = float(detalle["chi_calculado"])
+    chi_critico = float(detalle["chi_critico"])
+    aceptada = bool(detalle["aceptada"])
+
+    bins = np.linspace(0, 1, k + 1)
 
     etiquetas = [f"{bins[i]:.1f}-{bins[i + 1]:.1f}" for i in range(k)]
     x = np.arange(k)
@@ -648,6 +682,7 @@ def graficar_prueba_chi_cuadrado(numeros_aleatorios, k=10, alpha=0.05):
     plt.title("Prueba Chi-Cuadrado: Observadas vs Esperadas")
     plt.grid(axis="y", alpha=0.3)
     plt.legend()
+    _agregar_etiqueta_resultado(plt.gca(), aceptada)
     plt.tight_layout()
     plt.show()
 
